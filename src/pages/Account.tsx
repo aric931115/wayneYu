@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { LogIn, UserPlus, KeyRound, Mail, Eye, EyeOff, ArrowRight, Trophy, Coins, History, Save } from 'lucide-react';
+import { LogIn, LogOut, UserPlus, KeyRound, Mail, ArrowRight, Trophy, Coins, History, Save } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { toast } from 'sonner';
 import { useVoiceAssistant } from '@/hooks/useVoiceAssistant';
@@ -10,16 +10,16 @@ type View = 'main' | 'login' | 'signup' | 'forgot' | 'changePw' | 'career' | 'pr
 
 const Account = () => {
   const [view, setView] = useState<View>('main');
-  const [showPw, setShowPw] = useState(false);
-  const { user, updateProfile } = useAppContext();
+  const { user, isAuthenticated, loginWithId, logout, updateProfile, switchDemoUser } = useAppContext();
   const { activities } = useActivities();
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState(user.avatar);
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
+  const [loginId, setLoginId] = useState('');
 
   useVoiceAssistant(
     view === 'main' ? `帳戶管理。目前身份：${user.role === 'organizer' ? '活動發起者' : '參與者'}，累積${user.points}積分。`
-    : view === 'login' ? '登入頁面。請輸入學校信箱和密碼。'
+    : view === 'login' ? '登入頁面。請輸入使用者 ID。'
     : view === 'signup' ? '註冊頁面。請輸入學校信箱和密碼。'
     : view === 'forgot' ? '找回密碼頁面。'
     : view === 'career' ? '個人生涯頁面，查看歷史參與與成就。'
@@ -43,6 +43,18 @@ const Account = () => {
               <p className="text-sm opacity-80">總積分</p>
               <p className="text-3xl font-bold">{user.points}</p>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-lg font-bold flex items-center gap-2"><Coins size={20} /> 最近積分紀錄</h2>
+            {user.pointHistory.length === 0 ? (
+              <div className="card-accessible text-sm text-muted-foreground">尚無積分紀錄，完成活動任務後會顯示在這裡。</div>
+            ) : user.pointHistory.slice(0, 8).map(item => (
+              <div key={item.id} className="card-accessible flex items-center justify-between gap-3">
+                <div><p className="font-bold">{item.reason}</p><p className="text-xs text-muted-foreground">{item.createdAt}</p></div>
+                <span className="font-bold text-primary">{item.points > 0 ? '+' : ''}{item.points}</span>
+              </div>
+            ))}
           </div>
 
           <div className="space-y-3">
@@ -96,30 +108,31 @@ const Account = () => {
   }
 
   if (view === 'login') {
+    const submitLogin = (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const id = loginId.trim();
+      if (!/^[A-Za-z0-9]{1,7}$/.test(id)) {
+        toast.error('使用者 ID 限 1 至 7 碼英文字母或數字。');
+        return;
+      }
+      if (!loginWithId(id)) return;
+      setView('main');
+      setLoginId('');
+      toast.success(`已登入使用者 ${id}。暱稱可於個人管理設定。`);
+    };
     return (
       <div className="pb-24">
         <PageHeader title="登入" showBack />
-        <div className="p-6 space-y-5">
+        <form onSubmit={submitLogin} className="p-6 space-y-5">
           <div className="space-y-2">
-            <label className="font-bold">學校信箱</label>
-            <input placeholder="student@school.edu.tw" className="w-full min-h-[60px] rounded-2xl border-2 border-input bg-background px-4 text-lg focus:outline-none focus:ring-4 focus:ring-ring" />
+            <label htmlFor="demo-login-id" className="font-bold">使用者 ID</label>
+            <input id="demo-login-id" autoComplete="username" maxLength={7} pattern="[A-Za-z0-9]{1,7}" value={loginId} onChange={event => setLoginId(event.target.value)} placeholder="輸入 1 至 7 碼使用者 ID" className="w-full min-h-[60px] rounded-2xl border-2 border-input bg-background px-4 text-lg focus:outline-none focus:ring-4 focus:ring-ring" />
           </div>
-          <div className="space-y-2">
-            <label className="font-bold">密碼</label>
-            <div className="relative">
-              <input type={showPw ? 'text' : 'password'} placeholder="輸入密碼" className="w-full min-h-[60px] rounded-2xl border-2 border-input bg-background px-4 pr-14 text-lg focus:outline-none focus:ring-4 focus:ring-ring" />
-              <button onClick={() => setShowPw(!showPw)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground" aria-label="顯示密碼">
-                {showPw ? <EyeOff size={24} /> : <Eye size={24} />}
-              </button>
-            </div>
-          </div>
-          <button onClick={() => toast.success('登入成功！')} className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-2">
+          <p className="text-sm text-muted-foreground">展示模式不需要密碼。第一次輸入的 ID 會建立新使用者；再次輸入相同 ID 會載入已保存的帳戶資料。</p>
+          <button type="submit" className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-2">
             <LogIn size={24} /> 登入
           </button>
-          <button onClick={() => setView('forgot')} className="w-full text-center text-primary font-bold py-2 active:opacity-70">
-            忘記密碼？
-          </button>
-        </div>
+        </form>
       </div>
     );
   }
@@ -179,11 +192,19 @@ const Account = () => {
   if (view === 'profile') {
     const validateProfileField = (field: string, value: string) => {
       if (field === 'name') {
-        if (!value) return '名字不可空白。';
-        if (Array.from(value).length > 10) return '名字最多 10 個字。';
-        if (!/^[\u4e00-\u9fffA-Za-z0-9!@#$%^&*()_+\-=\[\]{};:'",.<>/?\\|`~ ]+$/.test(value)) return '名字含有不支援的字元。';
+        if (value && !/^[A-Za-z0-9]{1,7}$/.test(value)) return '暱稱限 1 至 7 碼英文字母或數字。';
       }
-      if (field === 'id' && !/^[A-Za-z0-9]{1,7}$/.test(value)) return 'ID 必須是 1 至 7 個英文或數字。';
+      if (field === 'id') {
+        if (!/^[A-Za-z0-9]{1,7}$/.test(value)) return 'ID 必須是 1 至 7 個英文或數字。';
+        if (value !== user.id) {
+          try {
+            const registry = JSON.parse(localStorage.getItem('campus-users-v2') || '{}') as Record<string, unknown>;
+            if (registry[value]) return '此 ID 已被使用，請選擇其他 ID。';
+          } catch (error) {
+            console.error('Failed to check the user ID registry.', error);
+          }
+        }
+      }
       return '';
     };
     const saveProfile = (event: FormEvent<HTMLFormElement>) => {
@@ -192,6 +213,7 @@ const Account = () => {
       const name = String(form.get('name') || '').trim();
       const id = String(form.get('id') || '').trim();
       const department = String(form.get('department') || '').trim();
+      const mbti = String(form.get('mbti') || '');
       const nextErrors = {
         name: validateProfileField('name', name),
         id: validateProfileField('id', id),
@@ -201,7 +223,7 @@ const Account = () => {
         toast.error('請先修正紅框欄位後再儲存。');
         return;
       }
-      updateProfile({ name, id, department, avatar: avatarPreview });
+      updateProfile({ name, id, mbti, department, avatar: avatarPreview });
       toast.success('個人資料已更新');
       setView('main');
     };
@@ -210,7 +232,7 @@ const Account = () => {
         <PageHeader title="編輯個人資料" showBack />
         <form onSubmit={saveProfile} className="p-6 space-y-5">
           {[
-            ['name', '名字', user.name, '最多 10 個字，可使用中文、英文、數字與符號'],
+            ['name', '暱稱', user.name, '選填；限 1 至 7 碼英文字母或數字'],
             ['id', 'ID', user.id, '最多 7 個字，只能使用英文與數字'],
             ['department', '科系', user.department, '例如：資訊工程學系'],
           ].map(([field, label, value, hint]) => (
@@ -227,6 +249,15 @@ const Account = () => {
               <p className="text-xs text-muted-foreground">{hint}</p>
             </div>
           ))}
+          <div className="space-y-2">
+            <label htmlFor="mbti" className="font-bold">MBTI</label>
+            <select id="mbti" name="mbti" defaultValue={user.mbti || ''} className="w-full min-h-[52px] rounded-2xl border-2 border-input bg-background px-4 text-lg">
+              <option value="">尚未選擇</option>
+              {['ISTJ', 'ISFJ', 'INFJ', 'INTJ', 'ISTP', 'ISFP', 'INFP', 'INTP', 'ESTP', 'ESFP', 'ENFP', 'ENTP', 'ESTJ', 'ESFJ', 'ENFJ', 'ENTJ'].map(type => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </div>
           <div className="space-y-2">
             <label className="font-bold">頭像圖片</label>
             <div className="flex items-center gap-4">
@@ -264,34 +295,52 @@ const Account = () => {
     <div className="pb-24">
       <PageHeader title="帳戶管理" />
       <div className="p-6 space-y-5">
-        {/* 個人資料卡 */}
-        <button onClick={() => setView('profile')} className="card-accessible flex items-center gap-4 w-full text-left">
-          {user.avatar.startsWith('data:image/') || user.avatar.startsWith('http')
-            ? <img src={user.avatar} alt="個人頭像" className="h-16 w-16 rounded-full object-cover bg-muted" />
-            : <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center text-3xl">{user.avatar}</div>}
-          <div className="flex-1">
-            <p className="text-lg font-bold">{user.name}</p>
-            <p className="text-sm text-muted-foreground">ID：{user.id}</p>
-            <p className="text-sm font-bold text-primary">💎 {user.points} 積分</p>
-            <span className="text-primary text-sm font-bold">編輯</span>
+        {isAuthenticated ? (
+          <button onClick={() => setView('profile')} className="card-accessible flex items-center gap-4 w-full text-left">
+            {user.avatar.startsWith('data:image/') || user.avatar.startsWith('http')
+              ? <img src={user.avatar} alt="個人頭像" className="h-16 w-16 rounded-full object-cover bg-muted" />
+              : <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center text-3xl">{user.avatar}</div>}
+            <div className="flex-1">
+              <p className="text-lg font-bold">{user.name || '尚未設定暱稱'}</p>
+              <p className="text-sm text-muted-foreground">ID：{user.id}</p>
+              <p className="text-sm text-muted-foreground">{user.mbti || 'MBTI 未設定'} · {user.department || '科系未設定'}</p>
+              <p className="text-sm font-bold text-primary">💎 {user.points} 積分</p>
+              <span className="text-primary text-sm font-bold">編輯</span>
             </div>
           </button>
+        ) : (
+          <div className="card-accessible text-center text-muted-foreground">
+            目前尚未登入。登入後即可查看個人資料、積分與活動紀錄。
+          </div>
+        )}
 
-        <button onClick={() => setView('career')} className="accessible-btn w-full bg-secondary text-secondary-foreground flex items-center justify-center gap-3">
-          <Trophy size={24} /> 我的生涯
-        </button>
-        <button onClick={() => setView('login')} className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-3">
-          <LogIn size={24} /> 登入
-        </button>
-        <button onClick={() => setView('signup')} className="accessible-btn w-full border-2 border-border text-foreground flex items-center justify-center gap-3">
-          <UserPlus size={24} /> 註冊
-        </button>
-        <button onClick={() => setView('changePw')} className="accessible-btn w-full border-2 border-border text-foreground flex items-center justify-center gap-3">
-          <KeyRound size={24} /> 更改密碼
-        </button>
-        <button onClick={() => setView('forgot')} className="accessible-btn w-full border-2 border-border text-foreground flex items-center justify-center gap-3">
-          <Mail size={24} /> 找回密碼
-        </button>
+        {isAuthenticated ? (
+          <>
+            <button onClick={() => setView('career')} className="accessible-btn w-full bg-secondary text-secondary-foreground flex items-center justify-center gap-3">
+              <Trophy size={24} /> 我的生涯
+            </button>
+            <div className="card-accessible space-y-2">
+              <p className="font-bold">🧪 展示測試：切換使用者</p>
+              <p className="text-xs text-muted-foreground">每位測試使用者的積分與紀錄分開保存；登出後仍可再次切換登入。</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { switchDemoUser('USRA', 'XiaoM'); toast.success('已切換為小明（ID：USRA）'); }} className="rounded-xl border-2 border-border p-3 font-bold">小明（USRA）</button>
+                <button onClick={() => { switchDemoUser('USRB', 'XiaoH'); toast.success('已切換為小華（ID：USRB）'); }} className="rounded-xl border-2 border-border p-3 font-bold">小華（USRB）</button>
+              </div>
+            </div>
+            <button onClick={() => { logout(); setView('main'); toast.success('已登出'); }} className="accessible-btn w-full border-2 border-border text-foreground flex items-center justify-center gap-3">
+              <LogOut size={24} /> 登出
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="card-accessible text-center text-muted-foreground">
+              目前尚未登入。你可以瀏覽活動；登入後即可建立活動、加入活動並保存個人紀錄。
+            </div>
+            <button onClick={() => setView('login')} className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-3">
+              <LogIn size={24} /> 登入
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

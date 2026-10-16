@@ -1,52 +1,72 @@
 param(
-    [string]$Message = "快速存檔"
+    [string]$Message = "更新專案"
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "   雙擊即可：存檔並同步到 GitHub" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "這個檔案會自動幫你完成：git add、git commit、git push" -ForegroundColor Cyan
-Write-Host ""
-
-Write-Host "正在檢查 Git 狀態..." -ForegroundColor Yellow
 $changes = git status --porcelain
+if ($LASTEXITCODE -ne 0) {
+    throw "無法讀取 Git 狀態，請確認 Git 已安裝且目前資料夾為 Git 專案。"
+}
 
-if ([string]::IsNullOrWhiteSpace($changes)) {
-    Write-Host "沒有新的修改，已是最新狀態。" -ForegroundColor Green
-    Read-Host "按 Enter 鍵結束"
+if ([string]::IsNullOrWhiteSpace(($changes -join "`n"))) {
+    Write-Host "沒有尚未同步的修改。" -ForegroundColor Green
     exit 0
 }
 
-Write-Host "發現新的修改，正在提交..." -ForegroundColor Yellow
-git add .
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ git add 失敗" -ForegroundColor Red
-    Read-Host "按 Enter 鍵結束"
-    exit 1
+$defaultDate = Get-Date -Format "yyyy-MM-dd"
+$syncDate = $null
+$culture = [System.Globalization.CultureInfo]::InvariantCulture
+$dateStyles = [System.Globalization.DateTimeStyles]::None
+
+while ($true) {
+    $dateInput = Read-Host "同步日期 (YYYY-MM-DD) [$defaultDate]"
+    if ([string]::IsNullOrWhiteSpace($dateInput)) {
+        $dateInput = $defaultDate
+    }
+
+    $parsedDate = [datetime]::MinValue
+    $isValidDate = [datetime]::TryParseExact(
+        $dateInput,
+        "yyyy-MM-dd",
+        $culture,
+        $dateStyles,
+        [ref]$parsedDate
+    )
+
+    if (-not $isValidDate -or $parsedDate.ToString("yyyy-MM-dd", $culture) -ne $dateInput) {
+        Write-Host "[ERROR] 日期無效，請輸入 YYYY-MM-DD。" -ForegroundColor Red
+        continue
+    }
+
+    $confirmation = Read-Host "請確認這次同步日期為 $dateInput (y/N)"
+    if ($confirmation -match "^(y|yes)$") {
+        $syncDate = $dateInput
+        break
+    }
+
+    Write-Host "日期未確認，請重新輸入。" -ForegroundColor Yellow
 }
 
-git commit -m $Message
+$commitMessage = "sync: $syncDate - $Message"
+
+Write-Host "正在加入修改..." -ForegroundColor Yellow
+git add -A
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ git commit 失敗" -ForegroundColor Red
-    Read-Host "按 Enter 鍵結束"
-    exit 1
+    throw "git add 失敗。"
 }
 
-Write-Host "正在同步到 GitHub..." -ForegroundColor Yellow
-git push
+Write-Host "正在提交：$commitMessage" -ForegroundColor Yellow
+git commit -m $commitMessage
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ git push 失敗" -ForegroundColor Red
-    Read-Host "按 Enter 鍵結束"
-    exit 1
+    throw "git commit 失敗。"
 }
 
-Write-Host "" 
-Write-Host "✅ 儲存成功！" -ForegroundColor Green
-Write-Host "✅ 已成功同步到 GitHub" -ForegroundColor Green
-Write-Host "" 
-Write-Host "你的變更已經被保存並上傳完成。" -ForegroundColor Cyan
-Read-Host "按 Enter 鍵結束"
+Write-Host "正在推送目前分支到 GitHub..." -ForegroundColor Yellow
+git push --set-upstream origin HEAD
+if ($LASTEXITCODE -ne 0) {
+    throw "git push 失敗；本機提交仍已保留，請先同步遠端分支後再重試推送。"
+}
+
+Write-Host "同步完成：$syncDate" -ForegroundColor Green

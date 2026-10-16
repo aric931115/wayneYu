@@ -4,8 +4,9 @@
 
 ### 快速啟動（最簡單）
 
-1. **雙擊 `start-dev.bat`** （Windows 批次檔案）
-   - 或雙擊 `start-dev.ps1`** （PowerShell 腳本）
+1. **Windows：雙擊 `start-dev.bat`**
+   - macOS：在終端機執行 `npm ci`，再執行 `npm run dev`
+   - PowerShell：執行 `.\start-dev.ps1`
 
 2. 等待自動安裝完成
 
@@ -18,8 +19,8 @@
 如果自動腳本有問題，可以手動執行：
 
 ```bash
-# 1. 安裝依賴
-npm install
+# 1. 依 package-lock.json 安裝固定版本的依賴
+npm ci
 
 # 2. 啟動開發伺服器
 npm run dev

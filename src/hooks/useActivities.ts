@@ -5,6 +5,8 @@ export interface ActivityTag {
   label: string;
   color: string;
 }
+export type VerificationType = 'auto' | 'social' | 'organizer';
+
 export type TaskType =
   | 'image-match'    // 圖像配對
   | 'quick-quiz'     // 快速問答
@@ -50,6 +52,20 @@ export interface ActivityTask {
   points: number;
   completed: boolean;
   verified?: boolean; // 發起者驗證
+  verificationType?: VerificationType;
+}
+
+export interface SocialInteractionRequest {
+  id: string;
+  activityId: number;
+  taskId: number;
+  fromUserId: string;
+  fromUserName: string;
+  toUserId: string;
+  toUserName: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: string;
+  respondedAt?: string;
 }
 
 export interface ActivityParticipant {
@@ -60,6 +76,8 @@ export interface ActivityParticipant {
   completed: boolean;
   rewardClaimed: boolean;
   taskProgress?: Record<number, number>;
+  socialCodes?: Record<number, string>;
+  socialPartners?: Record<number, string[]>;
   quizCorrect?: Record<number, boolean>;
   pointsEarned?: number;
   rewardPoints?: number;
@@ -89,7 +107,7 @@ export interface Activity {
   roomGamePoints: number;
   organizerQrCode: string;
   organizerName?: string;
-  organizerAnonymous?: boolean;
+  organizerAnonymous?: boolean; // legacy field; new activities are never anonymous
   organizerProfile?: {
     name: string;
     department: string;
@@ -119,10 +137,20 @@ function generateOrganizerQrCode(): string {
   return `${pick(3)}-${pick(4)}`;
 }
 
+function generateSocialCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const values = new Uint8Array(8);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(values);
+    return Array.from(values, value => chars[value % chars.length]).join('');
+  }
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
 const sampleParticipants: ActivityParticipant[] = [
-  { id: 'u-101', name: '小明', joinedAt: '3月14日', progress: 100, completed: true, rewardClaimed: true },
-  { id: 'u-102', name: '小華', joinedAt: '3月14日', progress: 66, completed: false, rewardClaimed: false },
-  { id: 'u-103', name: '阿德', joinedAt: '3月15日', progress: 33, completed: false, rewardClaimed: false },
+  { id: 'U101', name: '小明', joinedAt: '3月14日', progress: 100, completed: true, rewardClaimed: true },
+  { id: 'U102', name: '小華', joinedAt: '3月14日', progress: 66, completed: false, rewardClaimed: false },
+  { id: 'U103', name: '阿德', joinedAt: '3月15日', progress: 33, completed: false, rewardClaimed: false },
 ];
 
 const defaultActivities: Activity[] = [
@@ -148,7 +176,7 @@ const defaultActivities: Activity[] = [
     organizerQrCode: 'K7M-4Q2A',
     rewardClaimed: false,
     status: 'active',
-    organizerId: 'ORG-001',
+    organizerId: 'ORG001',
     organizerName: '校園活動中心',
     organizerAnonymous: false,
     createdAt: '3月1日',
@@ -177,10 +205,11 @@ const defaultActivities: Activity[] = [
     participantList: sampleParticipants.slice(0, 2),
     joined: false,
     roomCode: 'ECO202',
+    roomGamePoints: 0,
     organizerQrCode: 'P3X-8N6B',
     rewardClaimed: false,
     status: 'active',
-    organizerId: 'ORG-001',
+    organizerId: 'ORG001',
     organizerName: '環境教育社',
     organizerAnonymous: false,
     createdAt: '3月5日',
@@ -210,10 +239,11 @@ const defaultActivities: Activity[] = [
     participantList: [],
     joined: false,
     roomCode: 'SIGN03',
+    roomGamePoints: 0,
     organizerQrCode: 'R8C-1V5D',
     rewardClaimed: false,
     status: 'active',
-    organizerId: 'ORG-002',
+    organizerId: 'ORG002',
     organizerName: '手語社',
     organizerAnonymous: false,
     createdAt: '3月8日',
@@ -241,10 +271,11 @@ const defaultActivities: Activity[] = [
     participantList: [],
     joined: false,
     roomCode: 'ART004',
+    roomGamePoints: 0,
     organizerQrCode: 'T2H-9L4W',
     rewardClaimed: false,
     status: 'active',
-    organizerId: 'ORG-003',
+    organizerId: 'ORG003',
     organizerName: '美術社',
     organizerAnonymous: false,
     createdAt: '3月12日',
@@ -255,11 +286,51 @@ const defaultActivities: Activity[] = [
   },
 ];
 
-const initialActivities = defaultActivities.slice(0, 1);
-let globalActivities = [...initialActivities];
+const initialActivities = defaultActivities.slice(0, 1).map(activity => ({
+  ...activity,
+  organizerAnonymous: false,
+  tasks: activity.tasks.map(task => ({ ...task, verificationType: task.verificationType || 'organizer' as VerificationType })),
+}));
+
+const STORAGE_KEY = 'campus-activities-v2';
+const loadActivities = (): Activity[] => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch (error) {
+    console.error('Failed to load saved activities.', error);
+  }
+  return [...initialActivities];
+};
+let globalActivities = loadActivities();
+const persist = () => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(globalActivities));
+  } catch (error) {
+    console.error('Failed to save activities.', error);
+  }
+};
 let listeners: (() => void)[] = [];
 
-const notify = () => listeners.forEach(l => l());
+const notify = () => { persist(); listeners.forEach(l => l()); };
+
+const SOCIAL_REQUESTS_KEY = 'campus-social-requests-v2';
+const loadSocialRequests = (): SocialInteractionRequest[] => {
+  try {
+    return JSON.parse(localStorage.getItem(SOCIAL_REQUESTS_KEY) || '[]');
+  } catch (error) {
+    console.error('Failed to load social verification requests.', error);
+    return [];
+  }
+};
+let globalSocialRequests: SocialInteractionRequest[] = loadSocialRequests();
+const persistSocialRequests = () => {
+  try {
+    localStorage.setItem(SOCIAL_REQUESTS_KEY, JSON.stringify(globalSocialRequests));
+  } catch (error) {
+    console.error('Failed to save social verification requests.', error);
+  }
+};
 
 export function useActivities() {
   const [, setTick] = useState(0);
@@ -272,7 +343,7 @@ export function useActivities() {
     };
   });
 
-  const addActivity = (activity: Omit<Activity, 'id' | 'participants' | 'participantList' | 'joined' | 'roomCode' | 'organizerQrCode' | 'rewardClaimed' | 'status' | 'createdAt' | 'organizerId'> & { roomCode?: string }) => {
+  const addActivity = (activity: Omit<Activity, 'id' | 'participants' | 'participantList' | 'joined' | 'roomCode' | 'organizerQrCode' | 'rewardClaimed' | 'status' | 'createdAt'> & { roomCode?: string }) => {
     const roomCode = activity.roomCode === ''
       ? ''
       : activity.roomCode || generateUniqueRoomCode();
@@ -287,9 +358,9 @@ export function useActivities() {
       organizerQrCode: generateOrganizerQrCode(),
       rewardClaimed: false,
       status: 'active',
-      organizerId: 'ORG-ME',
-      organizerName: activity.organizerAnonymous ? undefined : '同學',
-      organizerAnonymous: activity.organizerAnonymous,
+      organizerId: activity.organizerId,
+      organizerName: activity.organizerProfile?.name || activity.organizerName || '活動建立者',
+      organizerAnonymous: false,
       createdAt: new Date().toLocaleDateString('zh-TW', { month: 'long', day: 'numeric' }),
     };
     globalActivities = [newActivity, ...globalActivities];
@@ -300,7 +371,7 @@ export function useActivities() {
   const joinActivity = (id: number, participant?: Pick<ActivityParticipant, 'id' | 'name'>) => {
     let joined = false;
     globalActivities = globalActivities.map(a =>
-      a.id === id && !a.joined && (a.maxParticipants === 0 || a.participants < a.maxParticipants)
+      a.id === id && !a.participantList.some(p => p.id === participant?.id) && (a.maxParticipants === 0 || a.participants < a.maxParticipants)
         ? (joined = true, {
             ...a,
             joined: true,
@@ -352,40 +423,162 @@ export function useActivities() {
     notify();
   };
 
-  const scanOrganizerQr = (activityId: number, taskId: number, qrCode: string, participantId?: string) => {
-    let valid = false;
-    let completed = false;
-    globalActivities = globalActivities.map(a =>
-      a.id === activityId && a.organizerQrCode === qrCode.trim().toUpperCase()
-        ? {
-            ...a,
-            tasks: a.tasks.map(t => {
-              if (t.id !== taskId) return t;
-              valid = true;
-              const completedCount = Math.min(t.completedCount + 1, t.targetCount);
-              completed = completedCount >= t.targetCount;
-              return { ...t, completedCount, completed };
-            }),
-            participantList: participantId
-              ? a.participantList.map(p => {
-                  if (p.id !== participantId) return p;
-                  const task = a.tasks.find(item => item.id === taskId);
-                  const taskProgress = {
-                    ...(p.taskProgress || {}),
-                    [taskId]: Math.min((p.taskProgress?.[taskId] || 0) + 1, task?.targetCount || 1),
-                  };
-                  const total = a.tasks.reduce((sum, task) => sum + task.targetCount, 0);
-                  const progress = total > 0
-                    ? Math.round((Object.values(taskProgress).reduce((sum, count) => sum + count, 0) / total) * 100)
-                    : 0;
-                  return { ...p, taskProgress, progress, completed: progress >= 100 };
-                })
-              : a.participantList,
-          }
-        : a
-    );
+  const updateParticipantTaskProgress = (activityId: number, taskId: number, participantId: string, increment = 1) => {
+    let justCompleted = false;
+    let points = 0;
+    globalActivities = globalActivities.map(a => {
+      if (a.id !== activityId) return a;
+      const task = a.tasks.find(t => t.id === taskId);
+      if (!task) return a;
+      return { ...a, participantList: a.participantList.map(p => {
+        if (p.id !== participantId) return p;
+        const before = p.taskProgress?.[taskId] || 0;
+        const after = Math.min(before + increment, task.targetCount);
+        justCompleted = before < task.targetCount && after >= task.targetCount;
+        if (justCompleted) points = task.points;
+        const taskProgress = { ...(p.taskProgress || {}), [taskId]: after };
+        const total = a.tasks.reduce((sum, item) => sum + item.targetCount, 0);
+        const done = a.tasks.reduce((sum, item) => sum + Math.min(taskProgress[item.id] || 0, item.targetCount), 0);
+        return { ...p, taskProgress, progress: total ? Math.round(done / total * 100) : 0, completed: total > 0 && done >= total, pointsEarned: (p.pointsEarned || 0) + (justCompleted ? task.points : 0) };
+      }) };
+    });
     notify();
-    return { valid, completed };
+    return { justCompleted, points };
+  };
+
+  const completeAutoTask = (activityId: number, taskId: number, participantId: string) => {
+    const activity = globalActivities.find(a => a.id === activityId);
+    const task = activity?.tasks.find(t => t.id === taskId);
+    if (!task || (task.verificationType || 'organizer') !== 'auto') return { valid: false, completed: false, points: 0 };
+    const result = updateParticipantTaskProgress(activityId, taskId, participantId, 1);
+    return { valid: true, completed: result.justCompleted, points: result.points };
+  };
+
+  const ensureSocialCode = (activityId: number, taskId: number, participantId: string) => {
+    const activity = globalActivities.find(a => a.id === activityId);
+    const task = activity?.tasks.find(t => t.id === taskId);
+    const participant = activity?.participantList.find(p => p.id === participantId);
+    if (!activity || !task || !participant || task.verificationType !== 'social') return '';
+
+    const existingCode = participant.socialCodes?.[taskId];
+    if (existingCode) return existingCode;
+
+    const existingCodes = new Set(activity.participantList.map(p => p.socialCodes?.[taskId]).filter(Boolean));
+    let code = generateSocialCode();
+    while (existingCodes.has(code)) code = generateSocialCode();
+
+    globalActivities = globalActivities.map(a => a.id !== activityId ? a : {
+      ...a,
+      participantList: a.participantList.map(p => p.id !== participantId ? p : {
+        ...p,
+        socialCodes: { ...(p.socialCodes || {}), [taskId]: code },
+      }),
+    });
+    notify();
+    return code;
+  };
+
+  const verifySocialCode = (activityId: number, taskId: number, participantId: string, enteredCode: string) => {
+    const activity = globalActivities.find(a => a.id === activityId);
+    const task = activity?.tasks.find(t => t.id === taskId);
+    const participant = activity?.participantList.find(p => p.id === participantId);
+    if (!activity || !task || !participant || task.verificationType !== 'social') {
+      return { valid: false, reason: 'unavailable' as const, completed: false, points: 0 };
+    }
+
+    const normalizedCode = enteredCode.trim().toUpperCase();
+    const owner = activity.participantList.find(p => p.socialCodes?.[taskId] === normalizedCode);
+    if (!owner) return { valid: false, reason: 'invalid' as const, completed: false, points: 0 };
+    if (owner.id === participantId) return { valid: false, reason: 'self' as const, completed: false, points: 0 };
+    if ((participant.socialPartners?.[taskId] || []).includes(owner.id)) {
+      return { valid: false, reason: 'duplicate' as const, completed: false, points: 0 };
+    }
+    if ((participant.taskProgress?.[taskId] || 0) >= task.targetCount) {
+      return { valid: false, reason: 'complete' as const, completed: true, points: 0 };
+    }
+
+    const result = updateParticipantTaskProgress(activityId, taskId, participantId, 1);
+    globalActivities = globalActivities.map(a => a.id !== activityId ? a : {
+      ...a,
+      participantList: a.participantList.map(p => p.id !== participantId ? p : {
+        ...p,
+        socialPartners: {
+          ...(p.socialPartners || {}),
+          [taskId]: [...(p.socialPartners?.[taskId] || []), owner.id],
+        },
+      }),
+    });
+    notify();
+    return { valid: true, reason: 'accepted' as const, completed: result.justCompleted, points: result.points };
+  };
+
+  const scanOrganizerQr = (activityId: number, taskId: number, qrCode: string, participantId?: string) => {
+    const activity = globalActivities.find(a => a.id === activityId);
+    const task = activity?.tasks.find(t => t.id === taskId);
+    if (!activity || !task || !participantId || (task.verificationType || 'organizer') !== 'organizer' || activity.organizerQrCode !== qrCode.trim().toUpperCase()) {
+      return { valid: false, completed: false, points: 0 };
+    }
+    const current = activity.participantList.find(p => p.id === participantId)?.taskProgress?.[taskId] || 0;
+    if (current >= task.targetCount) return { valid: true, completed: true, points: 0 };
+    // 人工驗證一次即確認該實體任務，避免同一驗證碼反覆累積。
+    const result = updateParticipantTaskProgress(activityId, taskId, participantId, task.targetCount - current);
+    return { valid: true, completed: result.justCompleted, points: result.points };
+  };
+
+  const sendSocialRequest = (activityId: number, taskId: number, participantId: string, friendId: string) => {
+    const activity = globalActivities.find(a => a.id === activityId);
+    const task = activity?.tasks.find(t => t.id === taskId);
+    const sender = activity?.participantList.find(p => p.id === participantId);
+    const receiver = activity?.participantList.find(p => p.id === friendId);
+    if (!activity || !task || !sender || !receiver || (task.verificationType || 'organizer') !== 'social' || friendId === participantId) {
+      return { valid: false, duplicate: false, pending: false };
+    }
+    const proofKey = `campus-social-proof-${activityId}-${taskId}-${participantId}`;
+    const used: string[] = JSON.parse(localStorage.getItem(proofKey) || '[]');
+    if (used.includes(friendId)) return { valid: true, duplicate: true, pending: false };
+    const existing = globalSocialRequests.find(r => r.activityId === activityId && r.taskId === taskId && r.fromUserId === participantId && r.toUserId === friendId && r.status === 'pending');
+    if (existing) return { valid: true, duplicate: false, pending: true };
+    globalSocialRequests = [{
+      id: `social-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      activityId, taskId, fromUserId: participantId, fromUserName: sender.name,
+      toUserId: friendId, toUserName: receiver.name, status: 'pending', createdAt: new Date().toLocaleString('zh-TW'),
+    }, ...globalSocialRequests];
+    persistSocialRequests();
+    listeners.forEach(l => l());
+    return { valid: true, duplicate: false, pending: false };
+  };
+
+  const respondSocialRequest = (requestId: string, responderId: string, accept: boolean) => {
+    const request = globalSocialRequests.find(r => r.id === requestId);
+    if (!request || request.toUserId !== responderId || request.status !== 'pending') return { valid: false, accepted: false, completed: false, points: 0 };
+    let completed = false;
+    let points = 0;
+    if (accept) {
+      const activity = globalActivities.find(a => a.id === request.activityId);
+      const task = activity?.tasks.find(t => t.id === request.taskId);
+      const proofKey = `campus-social-proof-${request.activityId}-${request.taskId}-${request.fromUserId}`;
+      const used: string[] = JSON.parse(localStorage.getItem(proofKey) || '[]');
+      if (activity && task && !used.includes(request.toUserId)) {
+        localStorage.setItem(proofKey, JSON.stringify([...used, request.toUserId]));
+        const result = updateParticipantTaskProgress(request.activityId, request.taskId, request.fromUserId, 1);
+        completed = result.justCompleted;
+        points = result.points;
+      }
+    }
+    globalSocialRequests = globalSocialRequests.map(r => r.id === requestId ? { ...r, status: accept ? 'accepted' : 'rejected', respondedAt: new Date().toLocaleString('zh-TW') } : r);
+    persistSocialRequests();
+    listeners.forEach(l => l());
+    return { valid: true, accepted: accept, completed, points, request };
+  };
+
+  const getSocialRequests = (userId: string, activityId?: number) => globalSocialRequests.filter(r =>
+    (r.fromUserId === userId || r.toUserId === userId) && (activityId === undefined || r.activityId === activityId)
+  );
+
+  // 相容舊呼叫：改為送出雙向確認邀請，不再直接增加進度。
+  const completeSocialTask = (activityId: number, taskId: number, participantId: string, friendId: string) => {
+    const result = sendSocialRequest(activityId, taskId, participantId, friendId);
+    return { ...result, completed: false, points: 0 };
   };
 
   const verifyTask = (activityId: number, taskId: number) => {
@@ -479,6 +672,13 @@ export function useActivities() {
     joinByCode,
     toggleTask,
     scanOrganizerQr,
+    completeAutoTask,
+    ensureSocialCode,
+    verifySocialCode,
+    completeSocialTask,
+    sendSocialRequest,
+    respondSocialRequest,
+    getSocialRequests,
     verifyTask,
     answerQuiz,
     claimReward,

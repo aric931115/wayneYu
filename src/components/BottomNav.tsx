@@ -15,14 +15,14 @@ const BottomNav = () => {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t-2 border-border safe-area-bottom">
-      <div className="flex justify-around items-center h-20 max-w-lg mx-auto">
+      <div className="flex justify-around items-center h-20 max-w-3xl mx-auto px-2 sm:px-6">
         {tabs.map(({ path, label, icon: Icon }) => {
           const active = location.pathname === path;
           return (
             <button
               key={path}
               onClick={() => navigate(path)}
-              className={`flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-2xl transition-all duration-150 active:scale-90
+              className={`flex flex-1 min-w-0 max-w-24 flex-col items-center justify-center gap-1 h-16 px-1 rounded-2xl transition-all duration-150 active:scale-90
                 ${active 
                   ? 'bg-primary text-primary-foreground shadow-lg' 
                   : 'text-muted-foreground hover:text-foreground'

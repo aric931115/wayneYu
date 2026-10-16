@@ -5,11 +5,13 @@ import PageHeader from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useActivities } from '@/hooks/useActivities';
+import { useAppContext } from '@/contexts/AppContext';
 
 const ManageActivity = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { activities, verifyTask, endActivity, deleteActivity, distributeRewards } = useActivities();
+  const { user } = useAppContext();
   const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
   const activity = activities.find(a => a.id === Number(id));
 
@@ -18,6 +20,15 @@ const ManageActivity = () => {
       <div className="pb-24">
         <PageHeader title="活動不存在" showBack />
         <div className="p-8 text-center text-muted-foreground text-lg">找不到此活動。</div>
+      </div>
+    );
+  }
+
+  if (activity.organizerId !== user.id) {
+    return (
+      <div className="pb-24">
+        <PageHeader title="無管理權限" showBack />
+        <div className="p-8 text-center text-muted-foreground text-lg">只有此活動的建立者可以進入管理頁面。</div>
       </div>
     );
   }
@@ -35,7 +46,7 @@ const ManageActivity = () => {
   return (
     <div className="pb-24">
       <PageHeader title={`管理：${activity.title}`} showBack />
-      <div className="p-4 space-y-4">
+      <div className="mx-auto w-full max-w-6xl p-4 space-y-4">
         {/* 狀態與代碼 */}
         <div className="card-accessible space-y-3">
           <div className="flex items-center justify-between">
@@ -49,7 +60,7 @@ const ManageActivity = () => {
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-center space-y-3">
             <p className="font-bold text-foreground">建立者專屬代碼</p>
             <p className="text-xl font-bold tracking-widest text-primary">{activity.organizerQrCode}</p>
-            <p className="text-sm font-bold text-destructive">請保存好此代碼，參與者需取得代碼才能完成任務。</p>
+            <p className="text-sm font-bold text-destructive">此代碼僅用於「活動發起者驗證」類型的實體任務，其他任務不使用此代碼。</p>
           </div>
           <p className="text-sm text-muted-foreground">
             活動時間：{activity.date}{activity.endDate !== activity.date ? `–${activity.endDate}` : ''} {activity.startTime}–{activity.endTime}
@@ -95,10 +106,11 @@ const ManageActivity = () => {
               <p className="text-2xl font-bold text-primary">{avgProgress}%</p>
             </div>
             <div className="bg-muted rounded-xl p-3">
-              <p className="text-xs text-muted-foreground">任務積分總額</p>
+              <p className="text-xs text-muted-foreground">任務獎勵積分合計</p>
               <p className="text-2xl font-bold text-primary">{totalPointsAvailable}</p>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">這是此活動內各任務設定的積分合計；活動本身沒有另外的積分，參與者完成個別任務後依任務獎勵取得積分。</p>
         </div>
 
         {/* 參與者列表 */}
@@ -109,7 +121,8 @@ const ManageActivity = () => {
           {activity.participantList.length === 0 ? (
             <div className="card-accessible text-center text-muted-foreground py-6">尚無參與者</div>
           ) : (
-            activity.participantList.map(p => (
+            <div className="grid gap-3 md:grid-cols-2">
+            {activity.participantList.map(p => (
               <div key={p.id} onClick={() => setSelectedParticipantId(selectedParticipantId === p.id ? null : p.id)} className="card-accessible space-y-2 w-full text-left cursor-pointer">
                 <div className="flex items-center justify-between">
                   <div>
@@ -167,14 +180,17 @@ const ManageActivity = () => {
                   </span>
                 )}
               </div>
-            ))
+            ))}
+            </div>
           )}
         </div>
 
         {/* 任務驗證 */}
         <div className="space-y-3">
           <h2 className="text-lg font-bold text-foreground">✅ 驗證任務進度</h2>
-          <p className="text-sm text-muted-foreground">此驗證是建立者確認任務紀錄的管理動作，不是參與者輸入專屬代碼；確認後可作為活動完成與發放獎勵的依據。</p>
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm text-foreground">
+            參與者需在任務房間依各任務設定的驗證方式完成任務；驗證成功並達到指定次數後，才會取得該任務的積分。此處的勾選僅供主辦人核對任務設定，不會增加參與者進度或發放積分。
+          </div>
           {activity.tasks.map(t => (
             <div key={t.id} className="card-accessible flex items-start gap-3">
               <button

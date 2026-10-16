@@ -10,9 +10,10 @@ const ActivityDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { activities, joinActivity } = useActivities();
-  const { user, addHistoryEntry } = useAppContext();
+  const { user, isAuthenticated, addHistoryEntry } = useAppContext();
   const activity = activities.find(a => a.id === Number(id));
-  const alreadyJoined = Boolean(activity && (activity.joined || user.history.some(history => history.activityId === activity.id)));
+  const participant = activity?.participantList.find(p => p.id === user.id);
+  const alreadyJoined = Boolean(participant || (activity && user.history.some(history => history.activityId === activity.id)));
 
   if (!activity) {
     return (
@@ -34,7 +35,12 @@ const ActivityDetail = () => {
   };
 
   const handleJoin = () => {
-    const joined = joinActivity(activity.id, { id: user.id, name: user.name });
+    if (!isAuthenticated) {
+      toast.info('請先登入才能加入活動。');
+      navigate('/account');
+      return;
+    }
+    const joined = joinActivity(activity.id, { id: user.id, name: user.name || user.id });
     if (!joined) {
       toast.info('您已參加過此活動，不能重複加入。');
       return;
@@ -54,7 +60,7 @@ const ActivityDetail = () => {
     <div className="pb-24">
       <PageHeader title={activity.title} showBack />
 
-      <div className="p-4 space-y-4">
+      <div className="mx-auto w-full max-w-4xl p-4 space-y-4">
         {/* Info card */}
         <div className="card-accessible space-y-3">
           <button
@@ -128,14 +134,18 @@ const ActivityDetail = () => {
         </div>
 
         {/* Organizer manage entry */}
-        {(user.role === 'organizer' || activity.organizerId === 'ORG-ME') && (
+        {activity.organizerId === user.id && (
           <Button onClick={() => navigate(`/activities/${activity.id}/manage`)} variant="secondary" className="w-full h-14 text-lg font-bold rounded-2xl gap-2">
             <Settings2 size={22} /> 管理此活動
           </Button>
         )}
 
         {/* Join button */}
-        {!alreadyJoined ? (
+        {!isAuthenticated ? (
+          <Button onClick={() => navigate('/account')} className="w-full h-14 text-lg font-bold rounded-2xl gap-2" size="lg">
+            <LogIn size={22} /> 登入後加入活動
+          </Button>
+        ) : !alreadyJoined ? (
           <Button onClick={handleJoin} disabled={activity.status === 'ended' || (activity.maxParticipants > 0 && activity.participants >= activity.maxParticipants)} className="w-full h-14 text-lg font-bold rounded-2xl gap-2" size="lg">
             <LogIn size={22} /> 加入活動
           </Button>
@@ -155,12 +165,13 @@ const ActivityDetail = () => {
           {activity.tasks.map(task => (
             <div key={task.id} className={`card-accessible flex items-start gap-3 ${!alreadyJoined ? 'opacity-60' : ''}`}>
               <div className="mt-0.5 flex-shrink-0">
-                {task.completed ? <CheckCircle2 size={28} className="text-primary" /> : <Circle size={28} className="text-muted-foreground" />}
+                {(participant?.taskProgress?.[task.id] || 0) >= task.targetCount ? <CheckCircle2 size={28} className="text-primary" /> : <Circle size={28} className="text-muted-foreground" />}
               </div>
               <div className="flex-1">
-                <p className={`font-bold text-foreground ${task.completed ? 'line-through opacity-60' : ''}`}>{task.title}</p>
+                <p className={`font-bold text-foreground ${(participant?.taskProgress?.[task.id] || 0) >= task.targetCount ? 'line-through opacity-60' : ''}`}>{task.title}</p>
                 <p className="text-sm text-muted-foreground">{task.desc}</p>
-                <p className="text-xs text-muted-foreground mt-1">完成進度：{task.completedCount}/{task.targetCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">完成進度：{participant?.taskProgress?.[task.id] || 0}/{task.targetCount}</p>
+                <p className="text-sm font-bold text-primary mt-1">任務完成獎勵：{task.points} 分</p>
               </div>
             </div>
           ))}

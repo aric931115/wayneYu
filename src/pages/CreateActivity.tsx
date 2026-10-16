@@ -13,6 +13,7 @@ import {
   QuizQuestion,
   ActivityCategory,
   ActivityTag,
+  VerificationType,
 } from '@/hooks/useActivities';
 
 interface QuizDraft {
@@ -22,7 +23,54 @@ interface QuizDraft {
   points: number;
 }
 
-type TaskDraft = { title: string; desc: string; targetCount: number; points: number };
+type TaskDraft = { title: string; desc: string; targetCount: number; points: number; verificationType: VerificationType };
+
+interface TimeFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+  invalid?: boolean;
+}
+
+const TimeField = ({ label, value, onChange, onBlur, invalid = false }: TimeFieldProps) => {
+  const [hour, minute] = value ? value.split(':') : ['', ''];
+
+  const updateTime = (nextHour: string, nextMinute: string) => {
+    onChange(nextHour || nextMinute ? `${nextHour || '00'}:${nextMinute || '00'}` : '');
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <select
+        aria-label={`${label} 小時`}
+        value={hour}
+        onChange={event => updateTime(event.target.value, minute)}
+        onBlur={onBlur}
+        className={`h-12 min-w-0 rounded-xl border-2 border-input bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${invalid ? 'border-destructive ring-2 ring-destructive/20' : ''}`}
+      >
+        <option value="">時</option>
+        {Array.from({ length: 24 }, (_, index) => {
+          const option = String(index).padStart(2, '0');
+          return <option key={option} value={option}>{option} 時</option>;
+        })}
+      </select>
+      <select
+        aria-label={`${label} 分鐘`}
+        value={minute}
+        onChange={event => updateTime(hour, event.target.value)}
+        onBlur={onBlur}
+        className={`h-12 min-w-0 rounded-xl border-2 border-input bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${invalid ? 'border-destructive ring-2 ring-destructive/20' : ''}`}
+      >
+        <option value="">分</option>
+        {Array.from({ length: 60 }, (_, index) => {
+          const option = String(index).padStart(2, '0');
+          return <option key={option} value={option}>{option} 分</option>;
+        })}
+      </select>
+    </div>
+  );
+};
 
 const CATEGORY_OPTIONS: { value: ActivityCategory; label: string; icon: typeof School; desc: string }[] = [
   { value: 'campus', label: '校園活動', icon: School, desc: '公開張貼在校園活動板' },
@@ -65,15 +113,14 @@ const CreateActivity = () => {
   const [selectedRoomGames, setSelectedRoomGames] = useState<string[]>([]);
   const [roomGamePoints, setRoomGamePoints] = useState(0);
   const [tasks, setTasks] = useState<TaskDraft[]>([
-    { title: '', desc: '', targetCount: 1, points: 0 },
+    { title: '', desc: '', targetCount: 1, points: 0, verificationType: 'organizer' },
   ]);
   const [quizzes, setQuizzes] = useState<QuizDraft[]>([]);
   const [touched, setTouched] = useState({ date: false, endDate: false, startTime: false, endTime: false });
   const [participantLimitTouched, setParticipantLimitTouched] = useState(false);
-  const [organizerAnonymous, setOrganizerAnonymous] = useState(false);
-  const [createdActivity, setCreatedActivity] = useState<{ organizerQrCode: string; title: string } | null>(null);
+    const [createdActivity, setCreatedActivity] = useState<{ organizerQrCode: string; title: string } | null>(null);
 
-  const addTask = () => setTasks([...tasks, { title: '', desc: '', targetCount: 1, points: 0 }]);
+  const addTask = () => setTasks([...tasks, { title: '', desc: '', targetCount: 1, points: 0, verificationType: 'organizer' }]);
   const removeTask = (idx: number) => setTasks(tasks.filter((_, i) => i !== idx));
   const updateTask = (idx: number, field: keyof TaskDraft, value: string | number) => {
     setTasks(tasks.map((t, i) => (i === idx ? { ...t, [field]: value } : t)));
@@ -207,9 +254,10 @@ const CreateActivity = () => {
       endTime,
       location: location.trim(),
       noPhysicalLocation,
-      organizerAnonymous,
+      organizerId: user.id,
+      organizerAnonymous: false,
       organizerProfile: {
-        name: user.name,
+        name: user.name || user.id,
         department: user.department,
         avatar: user.avatar,
       },
@@ -227,6 +275,7 @@ const CreateActivity = () => {
         completedCount: 0,
         points: category === 'campus' ? Math.min(10, Math.max(0, Math.floor(t.points))) : 0,
         completed: false,
+        verificationType: t.verificationType,
       })),
       quiz: validQuizzes,
       roomCode: createRoom ? undefined : '',
@@ -242,7 +291,7 @@ const CreateActivity = () => {
     <div className="pb-24">
       <PageHeader title="建立新活動" showBack />
 
-      <div className="p-4 space-y-5">
+      <div className="mx-auto w-full max-w-4xl p-4 space-y-5">
         {/* 活動類型 */}
         <div className="space-y-2">
           <label className="text-sm font-bold text-foreground">🏷️ 活動類型 *</label>
@@ -272,11 +321,6 @@ const CreateActivity = () => {
           <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="例如：校園環保日" className={`h-12 text-base rounded-xl ${duplicateActivityTitle ? 'border-destructive ring-2 ring-destructive/20' : ''}`} />
           {duplicateActivityTitle && <p className="text-xs font-bold text-destructive">活動名稱不可重複。</p>}
         </div>
-
-        <label className="flex items-center gap-2 text-sm font-bold">
-          <input type="checkbox" checked={organizerAnonymous} onChange={e => setOrganizerAnonymous(e.target.checked)} className="h-5 w-5 accent-primary" />
-          匿名發布活動
-        </label>
 
         <div className="space-y-2">
           <label className="text-sm font-bold text-foreground">開始日期 *</label>
@@ -309,11 +353,23 @@ const CreateActivity = () => {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
             <label className="text-sm font-bold text-foreground">開始時間 *</label>
-            <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} onBlur={() => setTouched(current => ({ ...current, startTime: true }))} className={`h-12 text-base rounded-xl ${startPastError ? 'border-destructive ring-2 ring-destructive/20' : ''}`} />
+            <TimeField
+              label="開始時間"
+              value={startTime}
+              onChange={setStartTime}
+              onBlur={() => setTouched(current => ({ ...current, startTime: true }))}
+              invalid={startPastError}
+            />
           </div>
           <div className="space-y-2">
             <label className="text-sm font-bold text-foreground">結束時間 *</label>
-            <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onBlur={() => setTouched(current => ({ ...current, endTime: true }))} className={`h-12 text-base rounded-xl ${sameDayTimeError ? 'border-destructive ring-2 ring-destructive/20' : ''}`} />
+            <TimeField
+              label="結束時間"
+              value={endTime}
+              onChange={setEndTime}
+              onBlur={() => setTouched(current => ({ ...current, endTime: true }))}
+              invalid={sameDayTimeError}
+            />
           </div>
         </div>
 
@@ -500,9 +556,13 @@ const CreateActivity = () => {
         {/* 任務設計 */}
         <div className="space-y-3">
           <label className="text-sm font-bold text-foreground">📋 任務設計</label>
-          {tasks.map((task, idx) => {
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm text-foreground">
+            任務建立在活動中，但活動本身不另外設定積分。每個任務可設定自己的完成獎勵；參與者達成任務條件後，依該任務設定取得積分。
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {tasks.map((task, idx) => {
             return (
-              <div key={idx} className="card-accessible space-y-2">
+              <div key={idx} className="card-accessible min-w-0 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-muted-foreground">
                     任務 {idx + 1}
@@ -518,6 +578,20 @@ const CreateActivity = () => {
                   <p className="text-xs font-bold text-destructive">任務名稱不可重複。</p>
                 )}
                 <Input value={task.desc} onChange={e => updateTask(idx, 'desc', e.target.value)} placeholder="任務說明（選填）" className="h-11 text-base rounded-xl" />
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-muted-foreground">驗證方式</label>
+                  <select value={task.verificationType} onChange={e => updateTask(idx, 'verificationType', e.target.value as VerificationType)} className="w-full h-11 rounded-xl border-2 border-input bg-background px-3 text-sm">
+                    <option value="auto">系統自動驗證</option>
+                    <option value="social">社交互動驗證</option>
+                    <option value="organizer">活動發起者驗證</option>
+                  </select>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {task.verificationType === 'auto' && '完成活動中的指定遊戲或問答後，系統會自動更新任務進度。'}
+                    {task.verificationType === 'social' && '由同一活動的另一位參與者確認互動；對方接受後才會增加進度。'}
+                    {task.verificationType === 'organizer' && '完成現場任務後，輸入活動主辦人提供的驗證碼，由系統確認完成。'}
+                    {' '}驗證方式用來確認任務是否完成；積分是此任務的獎勵，與活動本身分開計算。達到指定完成次數後，系統才會發放任務設定的積分。
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">完成次數</label>
@@ -547,7 +621,8 @@ const CreateActivity = () => {
                 </div>
               </div>
             );
-          })}
+            })}
+          </div>
           <button onClick={addTask} className="flex items-center gap-2 text-primary font-bold py-2 active:scale-95 transition-transform">
             <Plus size={20} /> 新增任務
           </button>

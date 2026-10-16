@@ -14,7 +14,7 @@ const CATEGORY_META: Record<ActivityCategory, { label: string; icon: typeof Scho
 
 const Activities = () => {
   const { activities } = useActivities();
-  const { user } = useAppContext();
+  const { user, isAuthenticated } = useAppContext();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'all' | ActivityCategory | 'joined' | 'mine'>('all');
 
@@ -23,10 +23,10 @@ const Activities = () => {
     : filter === 'joined'
       ? activities.filter(a => a.joined || user.history.some(history => history.activityId === a.id))
       : filter === 'mine'
-        ? activities.filter(a => a.organizerId === 'ORG-ME')
+        ? activities.filter(a => isAuthenticated && a.organizerId === user.id)
       : activities.filter(a => a.category === filter);
 
-  useVoiceAssistant(`校園活動頁面。共有${activities.length}個活動。目前身份：${user.role === 'organizer' ? '活動發起者' : '參與者'}。`);
+  useVoiceAssistant(`校園活動頁面。共有${activities.length}個活動。${isAuthenticated ? `目前身份：${user.role === 'organizer' ? '活動發起者' : '參與者'}。` : '目前尚未登入，只能瀏覽活動。'}`);
 
   const speak = (text: string) => {
     if ('speechSynthesis' in window) {
@@ -41,7 +41,7 @@ const Activities = () => {
   return (
     <div className="pb-24">
       <PageHeader title="校園活動" />
-      <div className="p-4 space-y-4">
+      <div className="mx-auto w-full max-w-6xl p-4 space-y-4">
         <div className="bg-secondary text-secondary-foreground rounded-2xl p-3 font-bold overflow-hidden">
           <div className="flex w-max gap-10 animate-marquee whitespace-nowrap">
             {[...activities, ...activities].map((activity, index) => (
@@ -53,7 +53,7 @@ const Activities = () => {
         </div>
 
         {/* 角色提示與發起者快捷 */}
-        {user.role === 'organizer' && (
+        {isAuthenticated && (
           <button
             onClick={() => navigate('/activities/create')}
             className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-2"
@@ -77,11 +77,12 @@ const Activities = () => {
           ))}
         </div>
 
-        {filtered.map(e => {
-          const meta = CATEGORY_META[e.category];
-          const Icon = meta.icon;
-          return (
-            <Link key={e.id} to={`/activities/${e.id}`} className="card-accessible space-y-3 block">
+        <div className="grid gap-4 md:grid-cols-2">
+          {filtered.map(e => {
+            const meta = CATEGORY_META[e.category];
+            const Icon = meta.icon;
+            return (
+              <Link key={e.id} to={`/activities/${e.id}`} className="card-accessible space-y-3 block min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1">
                   <div className="flex flex-wrap items-center gap-1.5 mb-1">
@@ -109,7 +110,7 @@ const Activities = () => {
                   <h2 className="text-lg font-bold text-foreground">{e.title}</h2>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
-                  {user.role === 'organizer' && (
+                  {isAuthenticated && e.organizerId === user.id && (
                     <button
                       onClick={(ev) => { ev.preventDefault(); navigate(`/activities/${e.id}/manage`); }}
                       className="w-12 h-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center active:scale-90"
@@ -133,9 +134,10 @@ const Activities = () => {
                 {!e.noPhysicalLocation && <span className="flex items-center gap-1"><MapPin size={16} />{e.location}</span>}
                 <span className="flex items-center gap-1"><Users size={16} />{e.maxParticipants > 0 ? `${e.participants}/${e.maxParticipants} 人` : `${e.participants} 人`}</span>
               </div>
-            </Link>
-          );
-        })}
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
