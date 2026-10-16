@@ -5,6 +5,16 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+$branch = git branch --show-current
+if ($LASTEXITCODE -ne 0) {
+    throw "無法讀取 Git 分支，請確認目前資料夾為 Git 專案。"
+}
+if ($branch -ne "main") {
+    Write-Host "[ERROR] 請先切換到 main 分支，再執行同步。" -ForegroundColor Red
+    Write-Host "        git switch main; git pull --ff-only origin main" -ForegroundColor Yellow
+    exit 1
+}
+
 $changes = git status --porcelain
 if ($LASTEXITCODE -ne 0) {
     throw "無法讀取 Git 狀態，請確認 Git 已安裝且目前資料夾為 Git 專案。"
@@ -63,8 +73,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "git commit 失敗。"
 }
 
-Write-Host "正在推送目前分支到 GitHub..." -ForegroundColor Yellow
-git push --set-upstream origin HEAD
+Write-Host "正在推送 main 分支到 GitHub..." -ForegroundColor Yellow
+git push --set-upstream origin main
 if ($LASTEXITCODE -ne 0) {
     throw "git push 失敗；本機提交仍已保留，請先同步遠端分支後再重試推送。"
 }

@@ -8,6 +8,13 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 
+BRANCH="$(git branch --show-current)"
+if [[ "$BRANCH" != "main" ]]; then
+  echo "[ERROR] 請先切換到 main 分支，再執行同步。"
+  echo "        git switch main && git pull --ff-only origin main"
+  exit 1
+fi
+
 if [[ -z "$(git status --porcelain)" ]]; then
   echo "沒有尚未同步的修改。"
   exit 0
@@ -44,7 +51,7 @@ git add -A
 echo "正在提交：$COMMIT_MESSAGE"
 git commit -m "$COMMIT_MESSAGE"
 
-echo "正在推送目前分支到 GitHub..."
-git push --set-upstream origin HEAD
+echo "正在推送 main 分支到 GitHub..."
+git push --set-upstream origin main
 
 echo "同步完成：$SYNC_DATE"
