@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 interface AppSettings {
   textSize: 'small' | 'medium' | 'large';
@@ -86,8 +88,19 @@ const loadFriendRequests = (): FriendRequest[] => {
   }
 };
 
+const GUEST_KEY = 'campus-guest-profile-v1';
+const guestId = (): string => {
+  try {
+    let id = localStorage.getItem('campus-guest-id-v1');
+    if (!id) {
+      id = `G${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      localStorage.setItem('campus-guest-id-v1', id);
+    }
+    return id;
+  } catch { return 'GUEST'; }
+};
 const defaultUser: UserProfile = {
-  id: 'USR0001',
+  id: guestId(),
   name: '',
   mbti: '',
   department: '尚未填寫科系',
@@ -101,21 +114,67 @@ const defaultUser: UserProfile = {
 };
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
+  const { user: authUser, loading: authLoading } = useAuth();
   const [settings, setSettings] = useState<AppSettings>({
     textSize: 'medium',
     highContrast: false,
     voiceAssistant: false,
   });
-  const [user, setUser] = useState<UserProfile>(defaultUser);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<UserProfile>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(GUEST_KEY) || 'null');
+      return saved && saved.id === defaultUser.id ? { ...defaultUser, ...saved } : defaultUser;
+    } catch { return defaultUser; }
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState(true); // 訪客可參與互動；非 Supabase 會員認證
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(loadFriendRequests);
+
+  // Supabase is the only source of authenticated identity and role.
+  React.useEffect(() => {
+    if (authLoading) return;
+    if (!authUser) {
+      setIsAuthenticated(true);
+      try {
+        const saved = JSON.parse(localStorage.getItem(GUEST_KEY) || 'null');
+        setUser(saved && saved.id === defaultUser.id ? { ...defaultUser, ...saved } : defaultUser);
+      } catch { setUser(defaultUser); }
+      return;
+    }
+    if (!supabase) return;
+    let alive = true;
+    setIsAuthenticated(true);
+    setUser({ ...defaultUser, id: authUser.id, name: authUser.email?.split('@')[0] || '', createdAt: authUser.created_at });
+    const load = async () => {
+      const { data, error } = await supabase.from('profiles').select('display_name,role,avatar_url').eq('id', authUser.id).maybeSingle();
+      if (!alive) return;
+      if (error) console.error('無法讀取 Supabase profiles:', error.message);
+      if (data) setUser(current => current.id === authUser.id ? {
+        ...current,
+        name: data.display_name || current.name,
+        role: data.role === 'organizer' || data.role === 'admin' ? 'organizer' : 'participant',
+        avatar: data.avatar_url || '👤',
+      } : current);
+      const { data: points, error: pointsError } = await supabase.rpc('get_my_total_points');
+      if (!alive) return;
+      if (pointsError) console.error('無法取得積分:', pointsError.message);
+      else {
+        const totalPoints = Number(points);
+        if (Number.isFinite(totalPoints)) {
+          setUser(current => current.id === authUser.id ? { ...current, points: totalPoints } : current);
+        }
+      }
+    };
+    void load();
+    return () => { alive = false; };
+  }, [authUser, authLoading]);
 
   const updateSettings = (s: Partial<AppSettings>) =>
     setSettings(prev => ({ ...prev, ...s }));
 
   React.useEffect(() => {
-    if (!isAuthenticated) return;
+    if (authUser) return;
     try {
+      localStorage.setItem(GUEST_KEY, JSON.stringify(user));
       localStorage.setItem('campus-user-v2', JSON.stringify(user));
       const registry = JSON.parse(localStorage.getItem('campus-users-v2') || '{}');
       registry[user.id] = user;
@@ -123,7 +182,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error('Failed to save the signed-in user profile.', error);
     }
-  }, [isAuthenticated, user]);
+  }, [authUser, isAuthenticated, user]);
 
   React.useEffect(() => {
     try {
@@ -134,6 +193,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   }, [friendRequests]);
 
   const loginWithId = (id: string) => {
+    if (authUser || !import.meta.env.DEV) return false;
     const normalizedId = id.trim();
     if (!/^[A-Za-z0-9]{1,7}$/.test(normalizedId)) return false;
     let registry: Record<string, UserProfile> = {};
@@ -151,8 +211,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logout = () => {
-    setIsAuthenticated(false);
-    setUser({ ...defaultUser, createdAt: new Date().toISOString() });
+    if (authUser && supabase) { void supabase.auth.signOut(); return; }
+    setIsAuthenticated(true);
+    setUser(defaultUser);
   };
 
   const sendFriendRequest = (toUserId: string) => {
@@ -196,8 +257,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     ));
   };
 
-  const setRole = (role: UserRole) => setUser(u => ({ ...u, role }));
-  const addPoints = (amount: number, reason = '任務獎勵', activityId?: number, taskId?: number) => setUser(u => ({
+  const setRole = (role: UserRole) => { if (!authUser) setUser(u => ({ ...u, role })); };
+  const addPoints = (amount: number, reason = '任務獎勵', activityId?: number, taskId?: number) => {
+    if (authUser) return; // 真實積分只能由 Supabase RPC 發放
+    setUser(u => ({
     ...u,
     points: u.points + amount,
     pointHistory: amount === 0 ? u.pointHistory : [{
@@ -205,6 +268,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       points: amount, reason, activityId, taskId, createdAt: new Date().toLocaleString('zh-TW'),
     }, ...u.pointHistory],
   }));
+  };
   const addHistoryEntry = (entry: UserHistoryEntry) =>
     setUser(u => u.history.some(historyEntry => historyEntry.activityId === entry.activityId)
       ? u
@@ -228,6 +292,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     });
 
   const switchDemoUser = (id: string, name?: string) => {
+    if (authUser || !import.meta.env.DEV) return;
     if (!/^[A-Za-z0-9]{1,7}$/.test(id)) {
       console.error('Refused to switch to an invalid user ID.');
       return;

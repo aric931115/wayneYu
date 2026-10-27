@@ -26,7 +26,7 @@ const Activities = () => {
         ? activities.filter(a => isAuthenticated && a.organizerId === user.id)
       : activities.filter(a => a.category === filter);
 
-  useVoiceAssistant(`校園活動頁面。共有${activities.length}個活動。${isAuthenticated ? `目前身份：${user.role === 'organizer' ? '活動發起者' : '參與者'}。` : '目前尚未登入，只能瀏覽活動。'}`);
+  useVoiceAssistant(`校園活動頁面。共有${activities.length}個活動。每個人都可以建立與參加活動。`);
 
   const speak = (text: string) => {
     if ('speechSynthesis' in window) {

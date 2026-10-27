@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, HelpCircle, School, Lock } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 import { useAppContext } from '@/contexts/AppContext';
 import {
   useActivities,
@@ -91,6 +92,7 @@ const ROOM_GAME_OPTIONS = [
 
 const CreateActivity = () => {
   const navigate = useNavigate();
+  const submittingRef = useRef(false);
   const { activities, addActivity } = useActivities();
   const { user } = useAppContext();
 
@@ -175,7 +177,8 @@ const CreateActivity = () => {
     return !q.question.trim() || options.length === 0 || options.some(option => !option);
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (submittingRef.current) return;
     if (!title.trim() || !date.trim() || !endDate.trim() || !startTime || !endTime || (!noPhysicalLocation && !location.trim()) || !desc.trim()) {
       toast.error('請填寫所有必要欄位');
       return;
@@ -246,6 +249,66 @@ const CreateActivity = () => {
             points: Math.min(5, Math.max(0, Math.floor(q.points))),
           }))
 
+    // 第 2-7 步：先同步「活動基本資料」，不改動原本任務操作。
+    // 尚未登入者仍可建立本機展示活動；訪客雲端儲存需在匿名身分/RLS 完成後另行串接。
+    if (supabase) {
+      submittingRef.current = true;
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        let memberId: string | undefined;
+        if (sessionData.session) {
+          const { data: authData, error: authError } = await supabase.auth.getUser();
+          if (authError) throw authError;
+          memberId = authData.user?.id;
+        }
+        if (memberId) {
+          const startISO = new Date(`${date}T${startTime}:00`).toISOString();
+          const endISO = new Date(`${endDate}T${endTime}:00`).toISOString();
+          const { data: insertedActivity, error: insertError } = await supabase.from('activities').insert({
+            organizer_id: memberId,
+            title: title.trim(),
+            description: desc.trim(),
+            category,
+            location: noPhysicalLocation ? null : location.trim(),
+            start_time: startISO,
+            end_time: endISO,
+            max_participants: noParticipantLimit ? null : Math.floor(Number(maxParticipants)),
+            reward_points: 0,
+            status: 'published',
+          }).select('id').single();
+          if (insertError) throw insertError;
+          if (!insertedActivity?.id) throw new Error('活動建立後未取得雲端活動 ID');
+
+          const taskRows = validTasks.map((task, index) => ({
+            activity_id: insertedActivity.id,
+            title: task.title.trim(),
+            description: task.desc.trim() || null,
+            task_type: 'individual',
+            verification_type: task.verificationType,
+            config: {
+              localTaskId: index + 1,
+              targetCount: Math.max(1, Math.floor(task.targetCount)),
+              points: category === 'campus' ? Math.min(10, Math.max(0, Math.floor(task.points))) : 0,
+            },
+            sort_order: index,
+            is_required: true,
+          }));
+          const { error: taskInsertError } = await supabase.from('tasks').insert(taskRows);
+          if (taskInsertError) {
+            throw new Error(`活動已寫入 Supabase（ID: ${insertedActivity.id}），但任務寫入失敗：${taskInsertError.message}`);
+          }
+        }
+      } catch (error) {
+        console.error('Supabase 活動新增失敗：', error);
+        toast.error(`資料庫儲存失敗：${error instanceof Error ? error.message : String(error)}`);
+        submittingRef.current = false;
+        return;
+      } finally {
+        submittingRef.current = false;
+      }
+    }
+
     const newActivity = addActivity({
       title: title.trim(),
       date: date.trim(),
@@ -283,7 +346,7 @@ const CreateActivity = () => {
       roomGamePoints: createRoom ? Math.min(3, Math.max(0, Math.floor(roomGamePoints))) : 0,
     });
 
-    toast.success(createRoom ? '活動已發布，房間已建立！' : '活動已發布！');
+    toast.success('活動與任務已完成建立（本機操作資料仍需後續同步）！');
     setCreatedActivity({ organizerQrCode: newActivity.organizerQrCode, title: newActivity.title });
   };
 

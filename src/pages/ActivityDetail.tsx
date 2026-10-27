@@ -10,7 +10,7 @@ const ActivityDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { activities, joinActivity } = useActivities();
-  const { user, isAuthenticated, addHistoryEntry } = useAppContext();
+  const { user, addHistoryEntry } = useAppContext();
   const activity = activities.find(a => a.id === Number(id));
   const participant = activity?.participantList.find(p => p.id === user.id);
   const alreadyJoined = Boolean(participant || (activity && user.history.some(history => history.activityId === activity.id)));
@@ -35,11 +35,6 @@ const ActivityDetail = () => {
   };
 
   const handleJoin = () => {
-    if (!isAuthenticated) {
-      toast.info('請先登入才能加入活動。');
-      navigate('/account');
-      return;
-    }
     const joined = joinActivity(activity.id, { id: user.id, name: user.name || user.id });
     if (!joined) {
       toast.info('您已參加過此活動，不能重複加入。');
@@ -141,11 +136,7 @@ const ActivityDetail = () => {
         )}
 
         {/* Join button */}
-        {!isAuthenticated ? (
-          <Button onClick={() => navigate('/account')} className="w-full h-14 text-lg font-bold rounded-2xl gap-2" size="lg">
-            <LogIn size={22} /> 登入後加入活動
-          </Button>
-        ) : !alreadyJoined ? (
+        {!alreadyJoined ? (
           <Button onClick={handleJoin} disabled={activity.status === 'ended' || (activity.maxParticipants > 0 && activity.participants >= activity.maxParticipants)} className="w-full h-14 text-lg font-bold rounded-2xl gap-2" size="lg">
             <LogIn size={22} /> 加入活動
           </Button>

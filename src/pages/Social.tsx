@@ -4,8 +4,8 @@ import { Search, UserPlus, Trophy, Users, Check, X, Clock } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { toast } from 'sonner';
 import { useVoiceAssistant } from '@/hooks/useVoiceAssistant';
-import { useActivities } from '@/hooks/useActivities';
 import { useAppContext } from '@/contexts/AppContext';
+import { getPointAchievementProgress } from '@/lib/achievements';
 
 type View = 'list' | 'add' | 'achievements';
 
@@ -14,7 +14,6 @@ const Social = () => {
   const [searchId, setSearchId] = useState('');
   const navigate = useNavigate();
   const { user, isAuthenticated, friendRequests, sendFriendRequest, respondFriendRequest } = useAppContext();
-  const { activities } = useActivities();
   const requests = friendRequests.filter(request => request.fromUserId === user.id || request.toUserId === user.id);
 
   const acceptedFriends = useMemo(() => {
@@ -73,12 +72,55 @@ const Social = () => {
   );
 
   if (view === 'achievements') {
-    const achievements = [
-      { title: '社交蝴蝶', desc: '加入 5 位好友', done: acceptedFriends.length >= 5 },
-      { title: '初次連結', desc: '完成第一位好友確認', done: acceptedFriends.length >= 1 },
-      { title: '活動達人', desc: '參加 3 場活動', done: activities.filter(activity => activity.participantList.some(participant => participant.id === user.id)).length >= 3 },
-    ];
-    return <div className="pb-24"><PageHeader title="成就功能" showBack /><div className="p-6 space-y-4">{achievements.map(achievement => <div key={achievement.title} className={`card-accessible flex items-center gap-4 ${achievement.done ? '' : 'opacity-50'}`}><div className="text-2xl">{achievement.done ? '🏆' : '🔒'}</div><div><div className="font-bold">{achievement.title}</div><div className="text-muted-foreground">{achievement.desc}</div></div></div>)}</div></div>;
+    const { achievements, nextAchievement, pointsToNext } = getPointAchievementProgress(user.points);
+    return (
+      <div className="pb-24">
+        <PageHeader title="積分成就" showBack />
+        <div className="mx-auto w-full max-w-3xl p-4 space-y-5">
+          <div className="card-accessible space-y-2">
+            <p className="text-sm text-muted-foreground">完成任務取得積分，累積積分即可解鎖成就。</p>
+            <p className="text-2xl font-bold">目前累積：{user.points} 積分</p>
+            {nextAchievement ? (
+              <>
+                <p className="text-sm">再獲得 {pointsToNext} 分即可解鎖「{nextAchievement.title}」</p>
+                <div
+                  className="h-3 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  aria-label={`距離${nextAchievement.title}的積分進度`}
+                  aria-valuemin={0}
+                  aria-valuemax={nextAchievement.requiredPoints}
+                  aria-valuenow={Math.min(user.points, nextAchievement.requiredPoints)}
+                >
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, (user.points / nextAchievement.requiredPoints) * 100)}%` }}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="font-bold text-primary">太棒了！已解鎖所有積分成就。</p>
+            )}
+          </div>
+          <div className="space-y-3">
+            {achievements.map(achievement => (
+              <div
+                key={achievement.id}
+                className={`card-accessible flex items-center gap-4 ${achievement.unlocked ? '' : 'opacity-60'}`}
+              >
+                <div className="text-3xl" aria-hidden="true">{achievement.unlocked ? achievement.icon : '🔒'}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold">{achievement.title}</div>
+                  <div className="text-sm text-muted-foreground">{achievement.description}</div>
+                </div>
+                <span className={`shrink-0 text-sm font-bold ${achievement.unlocked ? 'text-primary' : 'text-muted-foreground'}`}>
+                  {achievement.unlocked ? '已解鎖' : `${achievement.requiredPoints} 分`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

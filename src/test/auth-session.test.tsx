@@ -1,16 +1,24 @@
 import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AppProvider, UserProfile, useAppContext } from '@/contexts/AppContext';
+import { AuthProvider } from '@/contexts/AuthContext';
+
+const Providers = ({ children }: { children: ReactNode }) => (
+  <AuthProvider>
+    <AppProvider>{children}</AppProvider>
+  </AuthProvider>
+);
 
 describe('demo authentication session', () => {
   beforeEach(() => localStorage.clear());
 
-  it('starts logged out and retains demo users when switching and logging out', () => {
+  it('starts with an available guest profile and retains demo users when switching', () => {
     const { result } = renderHook(() => useAppContext(), {
-      wrapper: AppProvider,
+      wrapper: Providers,
     });
 
-    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.isAuthenticated).toBe(true);
 
     act(() => result.current.loginWithId('AB12345'));
     const firstUserId = result.current.user.id;
@@ -26,7 +34,7 @@ describe('demo authentication session', () => {
     }));
 
     act(() => result.current.logout());
-    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.isAuthenticated).toBe(true);
     act(() => result.current.loginWithId(firstUserId));
     expect(result.current.user.name).toBe('NewUser');
     expect(result.current.user.mbti).toBe('INTJ');
@@ -65,7 +73,7 @@ describe('demo authentication session', () => {
       createdAt: new Date().toISOString(),
     };
     localStorage.setItem('campus-users-v2', JSON.stringify({ [recipient.id]: recipient }));
-    const { result } = renderHook(() => useAppContext(), { wrapper: AppProvider });
+    const { result } = renderHook(() => useAppContext(), { wrapper: Providers });
 
     act(() => result.current.loginWithId('Sender1'));
     const senderId = result.current.user.id;
@@ -107,7 +115,7 @@ describe('demo authentication session', () => {
       participantList: [{ id: 'USR-A', socialPartners: { 2: ['USR-B'] } }],
     }]));
 
-    const { result } = renderHook(() => useAppContext(), { wrapper: AppProvider });
+    const { result } = renderHook(() => useAppContext(), { wrapper: Providers });
     act(() => result.current.switchDemoUser('USRA', 'XiaoM'));
 
     expect(result.current.user.id).toBe('USRA');
