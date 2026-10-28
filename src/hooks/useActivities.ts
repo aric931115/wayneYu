@@ -115,6 +115,9 @@ export interface Activity {
   };
   rewardClaimed: boolean;
   status: 'active' | 'ended';
+  reviewStatus?: 'pending' | 'approved' | 'rejected';
+  reviewNote?: string;
+  reviewedBy?: string;
   organizerId: string;
   createdAt: string;
 }
@@ -358,6 +361,7 @@ export function useActivities() {
       organizerQrCode: generateOrganizerQrCode(),
       rewardClaimed: false,
       status: 'active',
+      reviewStatus: 'pending',
       organizerId: activity.organizerId,
       organizerName: activity.organizerProfile?.name || activity.organizerName || '活動建立者',
       organizerAnonymous: false,
@@ -371,7 +375,7 @@ export function useActivities() {
   const joinActivity = (id: number, participant?: Pick<ActivityParticipant, 'id' | 'name'>) => {
     let joined = false;
     globalActivities = globalActivities.map(a =>
-      a.id === id && !a.participantList.some(p => p.id === participant?.id) && (a.maxParticipants === 0 || a.participants < a.maxParticipants)
+      a.id === id && (a.reviewStatus || 'approved') === 'approved' && !a.participantList.some(p => p.id === participant?.id) && (a.maxParticipants === 0 || a.participants < a.maxParticipants)
         ? (joined = true, {
             ...a,
             joined: true,
@@ -399,7 +403,7 @@ export function useActivities() {
 
   const joinByCode = (code: string): Activity | null => {
     const normalizedCode = code.trim().toUpperCase();
-    const activity = globalActivities.find(a => a.roomCode && a.roomCode === normalizedCode);
+    const activity = globalActivities.find(a => a.roomCode && a.roomCode === normalizedCode && (a.reviewStatus || 'approved') === 'approved');
     if (activity && activity.maxParticipants > 0 && activity.participants >= activity.maxParticipants) {
       return null;
     }
@@ -635,6 +639,22 @@ export function useActivities() {
     notify();
   };
 
+  const reviewActivity = (activityId: number, reviewerId: string, approve: boolean) => {
+    let updated = false;
+    globalActivities = globalActivities.map(activity => {
+      if (activity.id !== activityId || activity.reviewStatus !== 'pending') return activity;
+      updated = true;
+      return {
+        ...activity,
+        reviewStatus: approve ? 'approved' : 'rejected',
+        reviewNote: approve ? undefined : '請修改活動資料後重新送審。',
+        reviewedBy: reviewerId,
+      };
+    });
+    if (updated) notify();
+    return updated;
+  };
+
   const distributeRewards = (activityId: number, participantId?: string) => {
     globalActivities = globalActivities.map(a =>
       a.id === activityId
@@ -684,6 +704,7 @@ export function useActivities() {
     claimReward,
     endActivity,
     deleteActivity,
+    reviewActivity,
     distributeRewards,
   };
 }

@@ -17,16 +17,22 @@ const Activities = () => {
   const { user, isAuthenticated } = useAppContext();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'all' | ActivityCategory | 'joined' | 'mine'>('all');
+  const visibleActivities = activities.filter(activity =>
+    (activity.reviewStatus || 'approved') === 'approved'
+    || activity.organizerId === user.id
+    || user.role === 'admin'
+  );
 
   const filtered = filter === 'all'
-    ? activities
+    ? visibleActivities
     : filter === 'joined'
-      ? activities.filter(a => a.joined || user.history.some(history => history.activityId === a.id))
+      ? visibleActivities.filter(a => a.joined || user.history.some(history => history.activityId === a.id))
       : filter === 'mine'
-        ? activities.filter(a => isAuthenticated && a.organizerId === user.id)
-      : activities.filter(a => a.category === filter);
+        ? visibleActivities.filter(a => isAuthenticated && a.organizerId === user.id)
+      : visibleActivities.filter(a => a.category === filter && (a.reviewStatus || 'approved') === 'approved');
+  const publishedActivities = activities.filter(activity => (activity.reviewStatus || 'approved') === 'approved');
 
-  useVoiceAssistant(`校園活動頁面。共有${activities.length}個活動。每個人都可以建立與參加活動。`);
+  useVoiceAssistant(`校園活動頁面。共有${publishedActivities.length}個已核准活動。新活動需經官方審查後公開。`);
 
   const speak = (text: string) => {
     if ('speechSynthesis' in window) {
@@ -44,7 +50,7 @@ const Activities = () => {
       <div className="mx-auto w-full max-w-6xl p-4 space-y-4">
         <div className="bg-secondary text-secondary-foreground rounded-2xl p-3 font-bold overflow-hidden">
           <div className="flex w-max gap-10 animate-marquee whitespace-nowrap">
-            {[...activities, ...activities].map((activity, index) => (
+            {[...publishedActivities, ...publishedActivities].map((activity, index) => (
               <button key={`${activity.id}-${index}`} onClick={() => navigate(`/activities/${activity.id}`)} className="hover:underline">
                 📢 最新公告：{activity.title}
               </button>
@@ -59,6 +65,15 @@ const Activities = () => {
             className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-2"
           >
             <Plus size={24} /> 建立新活動
+          </button>
+        )}
+        {user.role === 'admin' && (
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className="accessible-btn w-full bg-secondary text-secondary-foreground"
+          >
+            官方管理審查
           </button>
         )}
 
@@ -105,6 +120,12 @@ const Activities = () => {
                     )}
                     {e.status === 'ended' && (
                       <span className="text-xs font-bold bg-muted text-muted-foreground rounded-full px-2 py-0.5">已結束</span>
+                    )}
+                    {e.reviewStatus === 'pending' && (
+                      <span className="text-xs font-bold bg-amber-500/15 text-amber-700 rounded-full px-2 py-0.5">待官方審查</span>
+                    )}
+                    {e.reviewStatus === 'rejected' && (
+                      <span className="text-xs font-bold bg-destructive/10 text-destructive rounded-full px-2 py-0.5">審查退回</span>
                     )}
                   </div>
                   <h2 className="text-lg font-bold text-foreground">{e.title}</h2>

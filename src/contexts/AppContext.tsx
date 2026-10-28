@@ -8,7 +8,7 @@ interface AppSettings {
   voiceAssistant: boolean;
 }
 
-export type UserRole = 'organizer' | 'participant';
+export type UserRole = 'organizer' | 'participant' | 'admin';
 
 export interface UserAchievement {
   id: string;
@@ -33,6 +33,18 @@ export interface PointHistoryEntry {
   activityId?: number;
   taskId?: number;
   createdAt: string;
+}
+
+export interface PointAwardRequest {
+  id: string;
+  recipientId: string;
+  recipientName: string;
+  amount: number;
+  reason: string;
+  activityId: number;
+  taskId: number;
+  createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
 }
 
 export interface UserProfile {
@@ -64,6 +76,7 @@ interface AppContextType {
   updateSettings: (s: Partial<AppSettings>) => void;
   user: UserProfile;
   isAuthenticated: boolean;
+  isDemoUser: boolean;
   loginWithId: (id: string) => boolean;
   logout: () => void;
   friendRequests: FriendRequest[];
@@ -73,17 +86,30 @@ interface AppContextType {
   addPoints: (amount: number, reason?: string, activityId?: number, taskId?: number) => void;
   addHistoryEntry: (entry: UserHistoryEntry) => void;
   unlockAchievement: (a: UserAchievement) => void;
+  pointAwardRequests: PointAwardRequest[];
+  requestPoints: (amount: number, reason: string, activityId: number, taskId: number) => void;
+  reviewPointAward: (requestId: string, approve: boolean) => boolean;
   updateProfile: (profile: Pick<UserProfile, 'id' | 'name' | 'mbti' | 'department' | 'avatar'>) => void;
   switchDemoUser: (id: string, name?: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 const FRIEND_REQUESTS_KEY = 'campus-friend-requests-v1';
+const POINT_AWARD_REQUESTS_KEY = 'campus-point-award-requests-v1';
 
 const loadFriendRequests = (): FriendRequest[] => {
   try {
     return JSON.parse(localStorage.getItem(FRIEND_REQUESTS_KEY) || '[]') as FriendRequest[];
   } catch {
+    return [];
+  }
+};
+
+const loadPointAwardRequests = (): PointAwardRequest[] => {
+  try {
+    return JSON.parse(localStorage.getItem(POINT_AWARD_REQUESTS_KEY) || '[]') as PointAwardRequest[];
+  } catch (error) {
+    console.error('Failed to load point award requests.', error);
     return [];
   }
 };
@@ -127,7 +153,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     } catch { return defaultUser; }
   });
   const [isAuthenticated, setIsAuthenticated] = useState(true); // 訪客可參與互動；非 Supabase 會員認證
+  const [isDemoUser, setIsDemoUser] = useState(false);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(loadFriendRequests);
+  const [pointAwardRequests, setPointAwardRequests] = useState<PointAwardRequest[]>(loadPointAwardRequests);
 
   // Supabase is the only source of authenticated identity and role.
   React.useEffect(() => {
@@ -151,7 +179,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       if (data) setUser(current => current.id === authUser.id ? {
         ...current,
         name: data.display_name || current.name,
-        role: data.role === 'organizer' || data.role === 'admin' ? 'organizer' : 'participant',
+        role: data.role === 'admin' ? 'admin' : data.role === 'organizer' ? 'organizer' : 'participant',
         avatar: data.avatar_url || '👤',
       } : current);
       const { data: points, error: pointsError } = await supabase.rpc('get_my_total_points');
@@ -192,6 +220,27 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [friendRequests]);
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(POINT_AWARD_REQUESTS_KEY, JSON.stringify(pointAwardRequests));
+    } catch (error) {
+      console.error('Failed to save point award requests.', error);
+    }
+  }, [pointAwardRequests]);
+
+  React.useEffect(() => {
+    const syncPointAwardRequests = (event: StorageEvent) => {
+      if (event.key !== POINT_AWARD_REQUESTS_KEY && event.key !== null) return;
+      try {
+        setPointAwardRequests(JSON.parse(event.newValue || '[]') as PointAwardRequest[]);
+      } catch (error) {
+        console.error('Failed to sync point award requests from another tab.', error);
+      }
+    };
+    window.addEventListener('storage', syncPointAwardRequests);
+    return () => window.removeEventListener('storage', syncPointAwardRequests);
+  }, []);
+
   const loginWithId = (id: string) => {
     if (authUser || !import.meta.env.DEV) return false;
     const normalizedId = id.trim();
@@ -204,15 +253,29 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
     const existing = registry[normalizedId];
     setUser(existing
-      ? { ...defaultUser, ...existing, name: /^[A-Za-z0-9]{1,7}$/.test(existing.name) ? existing.name : '', mbti: existing.mbti || '' }
-      : { ...defaultUser, id: normalizedId, name: '', createdAt: new Date().toISOString() });
+      ? {
+          ...defaultUser,
+          ...existing,
+          role: normalizedId.toUpperCase() === 'ADMIN1' ? 'admin' : existing.role,
+          name: /^[A-Za-z0-9]{1,7}$/.test(existing.name) ? existing.name : '',
+          mbti: existing.mbti || '',
+        }
+      : {
+          ...defaultUser,
+          id: normalizedId,
+          name: normalizedId.toUpperCase() === 'ADMIN1' ? 'Admin' : '',
+          role: normalizedId.toUpperCase() === 'ADMIN1' ? 'admin' : 'participant',
+          createdAt: new Date().toISOString(),
+        });
     setIsAuthenticated(true);
+    setIsDemoUser(true);
     return true;
   };
 
   const logout = () => {
     if (authUser && supabase) { void supabase.auth.signOut(); return; }
     setIsAuthenticated(true);
+    setIsDemoUser(false);
     setUser(defaultUser);
   };
 
@@ -275,6 +338,75 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       : { ...u, history: [entry, ...u.history] });
   const unlockAchievement = (a: UserAchievement) =>
     setUser(u => u.achievements.some(x => x.id === a.id) ? u : { ...u, achievements: [a, ...u.achievements] });
+  const requestPoints = (amount: number, reason: string, activityId: number, taskId: number) => {
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(activityId) || !Number.isInteger(taskId)) return;
+    setPointAwardRequests(current => {
+      const alreadyRequested = current.some(request =>
+        request.recipientId === user.id
+        && request.activityId === activityId
+        && request.taskId === taskId
+      );
+      if (alreadyRequested) return current;
+      return [{
+        id: `award-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        recipientId: user.id,
+        recipientName: user.name || user.id,
+        amount: Math.floor(amount),
+        reason,
+        activityId,
+        taskId,
+        createdAt: new Date().toLocaleString('zh-TW'),
+        status: 'pending',
+      }, ...current];
+    });
+  };
+  const reviewPointAward = (requestId: string, approve: boolean) => {
+    if (user.role !== 'admin') return false;
+    const request = pointAwardRequests.find(item => item.id === requestId && item.status === 'pending');
+    if (!request) return false;
+
+    if (approve) {
+      let registry: Record<string, UserProfile>;
+      try {
+        registry = JSON.parse(localStorage.getItem('campus-users-v2') || '{}') as Record<string, UserProfile>;
+      } catch (error) {
+        console.error('Failed to load user profiles for point approval.', error);
+        return false;
+      }
+      const recipient = registry[request.recipientId];
+      if (!recipient) return false;
+      const updatedRecipient: UserProfile = {
+        ...recipient,
+        points: recipient.points + request.amount,
+        pointHistory: [{
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          points: request.amount,
+          reason: request.reason,
+          activityId: request.activityId,
+          taskId: request.taskId,
+          createdAt: new Date().toLocaleString('zh-TW'),
+        }, ...recipient.pointHistory],
+      };
+      registry[request.recipientId] = updatedRecipient;
+      try {
+        localStorage.setItem('campus-users-v2', JSON.stringify(registry));
+        if (request.recipientId === user.id) {
+          localStorage.setItem('campus-guest-profile-v1', JSON.stringify(updatedRecipient));
+          setUser(updatedRecipient);
+        }
+      } catch (error) {
+        console.error('Failed to save the approved point award.', error);
+        return false;
+      }
+    }
+
+    setPointAwardRequests(current => current.map(item =>
+      item.id === requestId && item.status === 'pending'
+        ? { ...item, status: approve ? 'approved' : 'rejected' }
+        : item
+    ));
+    return true;
+  };
   const updateProfile = (profile: Pick<UserProfile, 'id' | 'name' | 'mbti' | 'department' | 'avatar'>) =>
     setUser(u => {
       const updated = { ...u, ...profile };
@@ -322,8 +454,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       const safeName = name && /^[A-Za-z0-9]{1,7}$/.test(name) ? name : id;
       migratedName = existing?.name && /^[A-Za-z0-9]{1,7}$/.test(existing.name) ? existing.name : safeName;
       setUser(existing && /^[A-Za-z0-9]{1,7}$/.test(existing.name)
-        ? existing
-        : { ...defaultUser, ...existing, id, name: safeName, mbti: existing?.mbti || '', createdAt: existing?.createdAt || new Date().toISOString() });
+        ? { ...existing, role: id.toUpperCase() === 'ADMIN1' ? 'admin' : existing.role }
+        : {
+            ...defaultUser,
+            ...existing,
+            id,
+            name: id.toUpperCase() === 'ADMIN1' ? 'Admin' : safeName,
+            role: id.toUpperCase() === 'ADMIN1' ? 'admin' : existing?.role || 'participant',
+            mbti: existing?.mbti || '',
+            createdAt: existing?.createdAt || new Date().toISOString(),
+          });
       localStorage.setItem('campus-users-v2', JSON.stringify(registry));
     } catch {
       console.error('Failed to load the demo user registry; using a new demo profile.');
@@ -363,10 +503,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       })));
     }
     setIsAuthenticated(true);
+    setIsDemoUser(true);
   };
 
   return (
-    <AppContext.Provider value={{ settings, updateSettings, user, isAuthenticated, loginWithId, logout, friendRequests, sendFriendRequest, respondFriendRequest, setRole, addPoints, addHistoryEntry, unlockAchievement, updateProfile, switchDemoUser }}>
+    <AppContext.Provider value={{ settings, updateSettings, user, isAuthenticated, isDemoUser, loginWithId, logout, friendRequests, sendFriendRequest, respondFriendRequest, setRole, addPoints, addHistoryEntry, unlockAchievement, pointAwardRequests, requestPoints, reviewPointAward, updateProfile, switchDemoUser }}>
       <div className={`${settings.highContrast ? 'high-contrast' : ''} text-size-${settings.textSize}`}>
         {children}
       </div>

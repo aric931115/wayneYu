@@ -10,8 +10,14 @@ import { useAppContext } from '@/contexts/AppContext';
 const TaskRoom = () => {
   const { id } = useParams();
   const { activities, scanOrganizerQr, completeAutoTask, ensureSocialCode, verifySocialCode, answerQuiz, claimReward } = useActivities();
-  const { user, addPoints } = useAppContext();
-  const activity = activities.find(a => a.id === Number(id));
+  const { user, requestPoints, pointAwardRequests } = useAppContext();
+  const foundActivity = activities.find(a => a.id === Number(id));
+  const activity = foundActivity
+    && ((foundActivity.reviewStatus || 'approved') === 'approved'
+      || foundActivity.organizerId === user.id
+      || user.role === 'admin')
+    ? foundActivity
+    : undefined;
   const participant = activity?.participantList.find(p => p.id === user.id);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number[]>>({});
   const [scanCode, setScanCode] = useState('');
@@ -31,11 +37,20 @@ const TaskRoom = () => {
       .forEach(task => ensureSocialCode(activity.id, task.id, user.id));
   }, [activity, participant, ensureSocialCode, user.id]);
 
+  const requestTaskAward = (taskId: number, amount: number) => {
+    if (!activity || amount <= 0 || user.role === 'admin') return;
+    const task = activity.tasks.find(item => item.id === taskId);
+    if (task) {
+      requestPoints(amount, `完成任務：${task.title}`, activity.id, task.id);
+    }
+  };
+
   useEffect(() => {
     if (!activity || !participant || matchedFruit.length !== fruits.length) return;
     const autoTask = activity.tasks.find(t => (t.verificationType || 'organizer') === 'auto' && (participant.taskProgress?.[t.id] || 0) < t.targetCount);
     if (!autoTask) return;
     const result = completeAutoTask(activity.id, autoTask.id, user.id);
+    if (result.completed) requestTaskAward(autoTask.id, result.points);
   }, [matchedFruit.length]);
 
   // 將任務完成獎勵同步到目前登入使用者的積分紀錄。
@@ -43,12 +58,11 @@ const TaskRoom = () => {
     if (!activity || !participant) return;
     activity.tasks.forEach(task => {
       const completed = (participant.taskProgress?.[task.id] || 0) >= task.targetCount;
-      const alreadyAwarded = user.pointHistory.some(item => item.activityId === activity.id && item.taskId === task.id && item.reason === `完成任務：${task.title}`);
-      if (completed && task.points > 0 && !alreadyAwarded) {
-        addPoints(task.points, `完成任務：${task.title}`, activity.id, task.id);
+      if (completed && task.points > 0 && user.role !== 'admin') {
+        requestPoints(task.points, `完成任務：${task.title}`, activity.id, task.id);
       }
     });
-  }, [activity, participant, user.id, user.pointHistory.length]);
+  }, [activity, participant, user.id, user.role, requestPoints]);
 
   if (!activity) {
     return (
@@ -93,7 +107,11 @@ const TaskRoom = () => {
       const autoTask = activity.tasks.find(t => (t.verificationType || 'organizer') === 'auto' && (participant?.taskProgress?.[t.id] || 0) < t.targetCount);
       if (autoTask) {
         const result = completeAutoTask(activity.id, autoTask.id, user.id);
-          }
+        if (result.completed) requestTaskAward(autoTask.id, result.points);
+      }
+      if (q && q.points > 0 && user.role !== 'admin') {
+        requestPoints(q.points, `答對問答：${q.question}`, activity.id, -q.id);
+      }
       toast.success('答對了！🎉');
     } else {
       toast.error('答錯了，再接再厲！');
@@ -166,24 +184,46 @@ const TaskRoom = () => {
             <h3 className="text-lg font-bold text-foreground">📋 任務清單</h3>
             <p className="text-sm text-muted-foreground">任務屬於此活動；積分則是各任務完成後發放的獎勵。達到任務指定次數後，系統會將積分記入你的帳戶。</p>
             <div className="grid gap-3 md:grid-cols-2">
-            {activity.tasks.map(task => (
+            {activity.tasks.map(task => {
+              const taskProgress = participant?.taskProgress?.[task.id] || 0;
+              const pointAward = pointAwardRequests.find(request =>
+                request.recipientId === user.id
+                && request.activityId === activity.id
+                && request.taskId === task.id
+                && (request.status === 'pending' || request.status === 'approved')
+              );
+              return (
               <div key={task.id} className="card-accessible flex min-w-0 items-start gap-3">
                 <div className="mt-0.5 flex-shrink-0">
-                  {(participant?.taskProgress?.[task.id] || 0) >= task.targetCount ? <CheckCircle2 size={28} className="text-primary" /> : <Circle size={28} className="text-muted-foreground" />}
+                  {taskProgress >= task.targetCount ? <CheckCircle2 size={28} className="text-primary" /> : <Circle size={28} className="text-muted-foreground" />}
                 </div>
                 <div className="flex-1">
-                  <p className={`font-bold text-foreground ${(participant?.taskProgress?.[task.id] || 0) >= task.targetCount ? 'line-through opacity-60' : ''}`}>
+                  <p className={`font-bold text-foreground ${taskProgress >= task.targetCount ? 'line-through opacity-60' : ''}`}>
                     {task.title}
                   </p>
                   <p className="text-sm text-muted-foreground">{task.desc}</p>
                   <p className="mt-1 text-sm font-bold text-primary">完成獎勵：{task.points} 分</p>
                   <div className="mt-2 space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                       <span>完成進度</span>
-                      <span className="font-bold text-primary">{participant?.taskProgress?.[task.id] || 0}/{task.targetCount}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-bold text-primary">{taskProgress}/{task.targetCount}</span>
+                        {pointAward && (
+                          <span
+                            role="status"
+                            className={`rounded-full px-2 py-1 font-bold ${
+                              pointAward.status === 'approved'
+                                ? 'bg-primary/10 text-primary'
+                                : 'bg-amber-500/10 text-amber-700'
+                            }`}
+                          >
+                            {pointAward.status === 'approved' ? '積分已發放' : '積分待發送'}
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full rounded-full bg-primary transition-all"                       style={{ width: `${Math.min(100, ((participant?.taskProgress?.[task.id] || 0) / task.targetCount) * 100)}%` }} />
+                      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, (taskProgress / task.targetCount) * 100)}%` }} />
                     </div>
                   </div>
                   {(participant?.taskProgress?.[task.id] || 0) < task.targetCount && (
@@ -244,6 +284,7 @@ const TaskRoom = () => {
                                     const result = verifySocialCode(activity.id, task.id, user.id, socialCodeInputs[task.id] || '');
                                     if (result.valid) {
                                       setSocialCodeInputs(current => ({ ...current, [task.id]: '' }));
+                                      if (result.completed) requestTaskAward(task.id, result.points);
                                       toast.success(result.completed ? `驗證成功！任務完成，獲得 ${result.points} 分` : '驗證成功！你的任務進度 +1');
                                     } else if (result.reason === 'self') {
                                       toast.error('不能輸入自己的任務碼，請交換其他參與者的碼。');
@@ -273,6 +314,7 @@ const TaskRoom = () => {
                             const result = scanOrganizerQr(activity.id, task.id, scanCode, user.id);
                             if (result.valid) {
                               setScanCode('');
+                              if (result.completed) requestTaskAward(task.id, result.points);
                               toast.success('主辦人驗證成功，任務已完成！');
                             } else toast.error('代碼無效，或此任務不使用主辦人驗證。');
                           }}><ScanLine size={16} /> 驗證</Button>
@@ -282,7 +324,8 @@ const TaskRoom = () => {
                   )}
                 </div>
               </div>
-            ))}
+            );
+            })}
             </div>
           </div>
         )}
@@ -361,8 +404,18 @@ const TaskRoom = () => {
                 <p className="text-xs text-muted-foreground">答對可得 {q.points} 分</p>
 
                 {participant?.quizCorrect && Object.prototype.hasOwnProperty.call(participant.quizCorrect, q.id) ? (
-                  <div className={`rounded-xl p-3 text-center font-bold ${participant.quizCorrect?.[q.id] ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
-                    {participant.quizCorrect[q.id] ? '✅ 答對了！' : `❌ 答錯了（正確答案：${q.correctIndexes.map(index => q.options[index]).join('、')}）`}
+                  <div className="space-y-2">
+                    <div className={`rounded-xl p-3 text-center font-bold ${participant.quizCorrect?.[q.id] ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
+                      {participant.quizCorrect[q.id] ? '✅ 答對了！' : `❌ 答錯了（正確答案：${q.correctIndexes.map(index => q.options[index]).join('、')}）`}
+                    </div>
+                    {participant.quizCorrect[q.id] && pointAwardRequests.some(request =>
+                      request.recipientId === user.id
+                      && request.activityId === activity.id
+                      && request.taskId === -q.id
+                      && request.status === 'pending'
+                    ) && (
+                      <p className="text-center text-xs font-bold text-muted-foreground">積分已送交官方確認，核准後才會入帳。</p>
+                    )}
                   </div>
                 ) : (
                   <>

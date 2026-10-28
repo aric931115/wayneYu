@@ -25,6 +25,7 @@ import SystemSettings from "@/pages/SystemSettings";
 import SupabaseTest from "@/pages/SupabaseTest";
 import NotFound from "./pages/NotFound";
 import SupabaseAuth from "@/pages/SupabaseAuth";
+import AdminDashboard from "@/pages/AdminDashboard";
 
 const queryClient = new QueryClient();
 
@@ -90,6 +91,10 @@ const App = () => (
                 <Route
                   path="/account"
                   element={<Account />}
+                />
+                <Route
+                  path="/admin"
+                  element={<AdminDashboard />}
                 />
 
                 {/* 系統設定 */}

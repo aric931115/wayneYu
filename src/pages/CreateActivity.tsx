@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, HelpCircle, School, Lock } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
 import { useAppContext } from '@/contexts/AppContext';
 import {
   useActivities,
@@ -92,7 +91,6 @@ const ROOM_GAME_OPTIONS = [
 
 const CreateActivity = () => {
   const navigate = useNavigate();
-  const submittingRef = useRef(false);
   const { activities, addActivity } = useActivities();
   const { user } = useAppContext();
 
@@ -148,15 +146,16 @@ const CreateActivity = () => {
   const today = new Date();
   const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const dateOrderError = Boolean(touched.endDate && date && endDate && endDate < date);
-  const sameDayTimeError = Boolean(
-    touched.endTime && touched.startTime && date && endDate && date === endDate && startTime && endTime && endTime <= startTime
+  const endBeforeStartError = Boolean(
+    touched.endTime && touched.startTime && date && endDate && startTime && endTime
+    && new Date(`${endDate}T${endTime}`) <= new Date(`${date}T${startTime}`)
   );
   const startPastError = Boolean(
     touched.startTime && date === todayString && startTime && new Date(`${date}T${startTime}`) < new Date()
   );
   const dateTimeError = dateOrderError
-    ? '結束日期必須晚於或等於開始日期'
-    : sameDayTimeError
+    ? '結束日期與時間必須晚於開始日期與時間'
+    : endBeforeStartError
       ? '結束時間必須晚於開始時間'
       : startPastError
         ? '今天的開始時間已經過去，請選擇未來時間'
@@ -177,8 +176,7 @@ const CreateActivity = () => {
     return !q.question.trim() || options.length === 0 || options.some(option => !option);
   });
 
-  const handleSubmit = async () => {
-    if (submittingRef.current) return;
+  const handleSubmit = () => {
     if (!title.trim() || !date.trim() || !endDate.trim() || !startTime || !endTime || (!noPhysicalLocation && !location.trim()) || !desc.trim()) {
       toast.error('請填寫所有必要欄位');
       return;
@@ -202,9 +200,7 @@ const CreateActivity = () => {
       return;
     }
 
-    const selectedEndDate = new Date(endDate);
-    selectedEndDate.setHours(0, 0, 0, 0);
-    if (selectedEndDate < selectedDate || (endDate === date && endTime <= startTime)) {
+    if (new Date(`${endDate}T${endTime}`) <= new Date(`${date}T${startTime}`)) {
       toast.error('結束日期與時間必須晚於開始日期與時間');
       return;
     }
@@ -249,66 +245,6 @@ const CreateActivity = () => {
             points: Math.min(5, Math.max(0, Math.floor(q.points))),
           }))
 
-    // 第 2-7 步：先同步「活動基本資料」，不改動原本任務操作。
-    // 尚未登入者仍可建立本機展示活動；訪客雲端儲存需在匿名身分/RLS 完成後另行串接。
-    if (supabase) {
-      submittingRef.current = true;
-      try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-        let memberId: string | undefined;
-        if (sessionData.session) {
-          const { data: authData, error: authError } = await supabase.auth.getUser();
-          if (authError) throw authError;
-          memberId = authData.user?.id;
-        }
-        if (memberId) {
-          const startISO = new Date(`${date}T${startTime}:00`).toISOString();
-          const endISO = new Date(`${endDate}T${endTime}:00`).toISOString();
-          const { data: insertedActivity, error: insertError } = await supabase.from('activities').insert({
-            organizer_id: memberId,
-            title: title.trim(),
-            description: desc.trim(),
-            category,
-            location: noPhysicalLocation ? null : location.trim(),
-            start_time: startISO,
-            end_time: endISO,
-            max_participants: noParticipantLimit ? null : Math.floor(Number(maxParticipants)),
-            reward_points: 0,
-            status: 'published',
-          }).select('id').single();
-          if (insertError) throw insertError;
-          if (!insertedActivity?.id) throw new Error('活動建立後未取得雲端活動 ID');
-
-          const taskRows = validTasks.map((task, index) => ({
-            activity_id: insertedActivity.id,
-            title: task.title.trim(),
-            description: task.desc.trim() || null,
-            task_type: 'individual',
-            verification_type: task.verificationType,
-            config: {
-              localTaskId: index + 1,
-              targetCount: Math.max(1, Math.floor(task.targetCount)),
-              points: category === 'campus' ? Math.min(10, Math.max(0, Math.floor(task.points))) : 0,
-            },
-            sort_order: index,
-            is_required: true,
-          }));
-          const { error: taskInsertError } = await supabase.from('tasks').insert(taskRows);
-          if (taskInsertError) {
-            throw new Error(`活動已寫入 Supabase（ID: ${insertedActivity.id}），但任務寫入失敗：${taskInsertError.message}`);
-          }
-        }
-      } catch (error) {
-        console.error('Supabase 活動新增失敗：', error);
-        toast.error(`資料庫儲存失敗：${error instanceof Error ? error.message : String(error)}`);
-        submittingRef.current = false;
-        return;
-      } finally {
-        submittingRef.current = false;
-      }
-    }
-
     const newActivity = addActivity({
       title: title.trim(),
       date: date.trim(),
@@ -346,7 +282,7 @@ const CreateActivity = () => {
       roomGamePoints: createRoom ? Math.min(3, Math.max(0, Math.floor(roomGamePoints))) : 0,
     });
 
-    toast.success('活動與任務已完成建立（本機操作資料仍需後續同步）！');
+    toast.success('活動已送交官方審查，核准後才會公開。');
     setCreatedActivity({ organizerQrCode: newActivity.organizerQrCode, title: newActivity.title });
   };
 
@@ -355,6 +291,10 @@ const CreateActivity = () => {
       <PageHeader title="建立新活動" showBack />
 
       <div className="mx-auto w-full max-w-4xl p-4 space-y-5">
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm text-foreground">
+          活動送出後會先進入官方審查，核准後才會出現在活動大廳。參與者完成任務後，積分也需由官方確認發放。
+        </div>
+
         {/* 活動類型 */}
         <div className="space-y-2">
           <label className="text-sm font-bold text-foreground">🏷️ 活動類型 *</label>
@@ -385,37 +325,18 @@ const CreateActivity = () => {
           {duplicateActivityTitle && <p className="text-xs font-bold text-destructive">活動名稱不可重複。</p>}
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-bold text-foreground">開始日期 *</label>
-          <Input
-            type="date"
-            value={date}
-            min={todayString}
-            onChange={e => setDate(e.target.value)}
-            onBlur={() => setTouched(current => ({ ...current, date: true }))}
-            className={`h-12 text-base rounded-xl ${touched.date && date < todayString ? 'border-destructive ring-2 ring-destructive/20' : ''}`}
-          />
-          {touched.startTime && date === todayString && startTime && new Date(`${date}T${startTime}`) < new Date() && (
-            <p className="text-xs font-bold text-destructive">今天的開始時間已經過去，請重新選擇。</p>
-          )}
-        </div>
-        {dateTimeError && <p className="text-xs font-bold text-destructive">{dateTimeError}</p>}
-
-        <div className="space-y-2">
-          <label className="text-sm font-bold text-foreground">結束日期 *</label>
-          <Input
-            type="date"
-            value={endDate}
-            min={date || new Date().toISOString().split('T')[0]}
-            onChange={e => setEndDate(e.target.value)}
-            onBlur={() => setTouched(current => ({ ...current, endDate: true }))}
-            className={`h-12 text-base rounded-xl ${dateOrderError ? 'border-destructive ring-2 ring-destructive/20' : ''}`}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-foreground">開始時間 *</label>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-3 rounded-xl border border-border p-4">
+            <h2 className="text-sm font-bold text-foreground">開始日期與時間 *</h2>
+            <Input
+              aria-label="開始日期"
+              type="date"
+              value={date}
+              min={todayString}
+              onChange={e => setDate(e.target.value)}
+              onBlur={() => setTouched(current => ({ ...current, date: true }))}
+              className={`h-12 text-base rounded-xl ${touched.date && date < todayString ? 'border-destructive ring-2 ring-destructive/20' : ''}`}
+            />
             <TimeField
               label="開始時間"
               value={startTime}
@@ -423,18 +344,31 @@ const CreateActivity = () => {
               onBlur={() => setTouched(current => ({ ...current, startTime: true }))}
               invalid={startPastError}
             />
+            {startPastError && (
+              <p className="text-xs font-bold text-destructive">今天的開始時間已經過去，請重新選擇。</p>
+            )}
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-foreground">結束時間 *</label>
+          <div className="space-y-3 rounded-xl border border-border p-4">
+            <h2 className="text-sm font-bold text-foreground">結束日期與時間 *</h2>
+            <Input
+              aria-label="結束日期"
+              type="date"
+              value={endDate}
+              min={date || todayString}
+              onChange={e => setEndDate(e.target.value)}
+              onBlur={() => setTouched(current => ({ ...current, endDate: true }))}
+              className={`h-12 text-base rounded-xl ${dateOrderError ? 'border-destructive ring-2 ring-destructive/20' : ''}`}
+            />
             <TimeField
               label="結束時間"
               value={endTime}
               onChange={setEndTime}
               onBlur={() => setTouched(current => ({ ...current, endTime: true }))}
-              invalid={sameDayTimeError}
+              invalid={endBeforeStartError}
             />
           </div>
         </div>
+        {dateTimeError && <p className="text-xs font-bold text-destructive">{dateTimeError}</p>}
 
         <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
           <div>

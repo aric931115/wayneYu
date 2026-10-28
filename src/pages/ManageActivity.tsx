@@ -1,6 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { Users, CheckCircle2, Circle, Award, BarChart3, StopCircle, Copy, Gift, Trash2 } from 'lucide-react';
+import { Users, CheckCircle2, Circle, BarChart3, StopCircle, Copy, Trash2 } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -10,9 +9,8 @@ import { useAppContext } from '@/contexts/AppContext';
 const ManageActivity = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { activities, verifyTask, endActivity, deleteActivity, distributeRewards } = useActivities();
+  const { activities, verifyTask, endActivity, deleteActivity } = useActivities();
   const { user } = useAppContext();
-  const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
   const activity = activities.find(a => a.id === Number(id));
 
   if (!activity) {
@@ -40,9 +38,6 @@ const ManageActivity = () => {
   const completionRate = activity.participantList.length > 0
     ? Math.round((completedCount / activity.participantList.length) * 100)
     : 0;
-  const totalPointsAvailable = activity.tasks.reduce((sum, task) => sum + task.points, 0)
-    + activity.quiz.reduce((sum, question) => sum + question.points, 0);
-
   return (
     <div className="pb-24">
       <PageHeader title={`管理：${activity.title}`} showBack />
@@ -105,12 +100,8 @@ const ManageActivity = () => {
               <p className="text-xs text-muted-foreground">平均進度</p>
               <p className="text-2xl font-bold text-primary">{avgProgress}%</p>
             </div>
-            <div className="bg-muted rounded-xl p-3">
-              <p className="text-xs text-muted-foreground">任務獎勵積分合計</p>
-              <p className="text-2xl font-bold text-primary">{totalPointsAvailable}</p>
-            </div>
           </div>
-          <p className="text-xs text-muted-foreground">這是此活動內各任務設定的積分合計；活動本身沒有另外的積分，參與者完成個別任務後依任務獎勵取得積分。</p>
+          <p className="text-xs text-muted-foreground">活動及任務積分需經官方審查；發起者不能直接核發積分。</p>
         </div>
 
         {/* 參與者列表 */}
@@ -123,7 +114,7 @@ const ManageActivity = () => {
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
             {activity.participantList.map(p => (
-              <div key={p.id} onClick={() => setSelectedParticipantId(selectedParticipantId === p.id ? null : p.id)} className="card-accessible space-y-2 w-full text-left cursor-pointer">
+              <div key={p.id} className="card-accessible space-y-2 w-full text-left">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-bold text-foreground">{p.name}</p>
@@ -153,32 +144,6 @@ const ManageActivity = () => {
                     </div>
                   ))}
                 </div>
-                {p.rewardClaimed && (
-                  <p className="text-xs text-primary flex items-center gap-1">
-                    <Award size={12} /> 已發放 {p.rewardPoints || 0} 分
-                  </p>
-                )}
-                {selectedParticipantId === p.id && p.completed && !p.rewardClaimed && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      distributeRewards(activity.id, p.id);
-                      toast.success(`已發放 ${p.name} 的獎勵點數`);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.stopPropagation();
-                        distributeRewards(activity.id, p.id);
-                        toast.success(`已發放 ${p.name} 的獎勵點數`);
-                      }
-                    }}
-                    className="block rounded-xl bg-primary px-3 py-2 text-center text-sm font-bold text-primary-foreground"
-                  >
-                    發放此參與者獎勵點數
-                  </span>
-                )}
               </div>
             ))}
             </div>
@@ -189,7 +154,7 @@ const ManageActivity = () => {
         <div className="space-y-3">
           <h2 className="text-lg font-bold text-foreground">✅ 驗證任務進度</h2>
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm text-foreground">
-            參與者需在任務房間依各任務設定的驗證方式完成任務；驗證成功並達到指定次數後，才會取得該任務的積分。此處的勾選僅供主辦人核對任務設定，不會增加參與者進度或發放積分。
+            參與者完成任務後會送出積分申請；官方管理員確認後才會核發積分。此處的勾選僅供發起者核對任務設定，不會直接發放積分。
           </div>
           {activity.tasks.map(t => (
             <div key={t.id} className="card-accessible flex items-start gap-3">
@@ -211,13 +176,6 @@ const ManageActivity = () => {
 
         {/* 動作區 */}
         <div className="space-y-3">
-          <Button
-            onClick={() => { distributeRewards(activity.id); toast.success('已依每位參與者的任務進度與答題結果智能發放獎勵'); }}
-            className="w-full h-14 text-lg font-bold rounded-2xl gap-2"
-          >
-            <Gift size={22} /> 依進度一鍵發放獎勵
-          </Button>
-          <p className="text-xs text-muted-foreground">完成的任務依比例計算任務積分，答對的問答題發放題目積分；未完成或答錯的部分不會發放。</p>
           {activity.status === 'active' ? (
             <Button
               variant="destructive"

@@ -11,7 +11,13 @@ const ActivityDetail = () => {
   const navigate = useNavigate();
   const { activities, joinActivity } = useActivities();
   const { user, addHistoryEntry } = useAppContext();
-  const activity = activities.find(a => a.id === Number(id));
+  const foundActivity = activities.find(a => a.id === Number(id));
+  const activity = foundActivity
+    && ((foundActivity.reviewStatus || 'approved') === 'approved'
+      || foundActivity.organizerId === user.id
+      || user.role === 'admin')
+    ? foundActivity
+    : undefined;
   const participant = activity?.participantList.find(p => p.id === user.id);
   const alreadyJoined = Boolean(participant || (activity && user.history.some(history => history.activityId === activity.id)));
 
@@ -56,6 +62,16 @@ const ActivityDetail = () => {
       <PageHeader title={activity.title} showBack />
 
       <div className="mx-auto w-full max-w-4xl p-4 space-y-4">
+        {activity.reviewStatus === 'pending' && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            此活動尚待官方審查，核准後才會公開並開放參加。
+          </div>
+        )}
+        {activity.reviewStatus === 'rejected' && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            此活動已由官方退回：{activity.reviewNote || '請修改活動資料後重新送審。'}
+          </div>
+        )}
         {/* Info card */}
         <div className="card-accessible space-y-3">
           <button
@@ -136,7 +152,7 @@ const ActivityDetail = () => {
         )}
 
         {/* Join button */}
-        {!alreadyJoined ? (
+        {!alreadyJoined && activity.reviewStatus !== 'rejected' && (activity.reviewStatus || 'approved') === 'approved' ? (
           <Button onClick={handleJoin} disabled={activity.status === 'ended' || (activity.maxParticipants > 0 && activity.participants >= activity.maxParticipants)} className="w-full h-14 text-lg font-bold rounded-2xl gap-2" size="lg">
             <LogIn size={22} /> 加入活動
           </Button>

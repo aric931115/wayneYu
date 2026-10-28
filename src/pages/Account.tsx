@@ -1,18 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import PageHeader from '@/components/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase, supabaseConfigurationMessage } from '@/lib/supabase';
+import { useAppContext } from '@/contexts/AppContext';
 
 type Profile = { display_name: string; role: string; avatar_url: string | null };
 export default function Account() {
   const { user, loading, signOut } = useAuth();
+  const { user: localUser, isDemoUser, loginWithId, logout: logoutDemo } = useAppContext();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [name, setName] = useState('');
   const [points, setPoints] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [demoId, setDemoId] = useState('');
   useEffect(() => {
     if (!user || !supabase) { setProfile(null); setPoints(null); return; }
     let alive = true;
@@ -48,12 +52,39 @@ export default function Account() {
     else if (!data) toast.error('找不到可更新的個人資料，請先執行壓縮檔中的 profiles 修復 SQL。');
     else { setProfile(data); toast.success('個人資料已儲存至 Supabase'); }
   };
+  const signInDemo = (e: FormEvent) => {
+    e.preventDefault();
+    if (!loginWithId(demoId)) {
+      toast.error('展示帳號 ID 格式不正確。');
+      return;
+    }
+    toast.success(demoId.trim().toUpperCase() === 'ADMIN1' ? '已登入本機官方展示帳號' : '已登入本機展示帳號');
+    navigate(demoId.trim().toUpperCase() === 'ADMIN1' ? '/admin' : '/activities');
+  };
   return <div className="pb-28"><PageHeader title="帳戶管理" />
     <div className="p-6 space-y-5">
       {loading ? <p>正在確認登入狀態...</p> : !user ? <div className="card-accessible space-y-4">
-        <p>尚未登入。請使用 Email 與密碼登入。</p>
+        <p>{isDemoUser ? `目前使用本機展示帳號：${localUser.name || localUser.id}（${localUser.id}），積分 ${localUser.points}。` : '尚未登入 Supabase。可使用本機展示帳號測試流程。'}</p>
         {!supabase && <p role="status" className="text-sm text-muted-foreground">{supabaseConfigurationMessage}</p>}
         <Link className="accessible-btn bg-primary text-primary-foreground flex items-center justify-center" to="/auth">登入／註冊</Link>
+        {import.meta.env.DEV && (
+          <form onSubmit={signInDemo} className="space-y-3 border-t border-border pt-4">
+            <p className="text-sm text-muted-foreground">本機流程測試（不是真正帳號認證）</p>
+            {isDemoUser && (
+              <button type="button" onClick={logoutDemo} className="accessible-btn w-full border-2 border-border">
+                登出本機展示帳號
+              </button>
+            )}
+            {localUser.role === 'admin' && (
+              <Link to="/admin" className="accessible-btn w-full bg-secondary text-secondary-foreground flex items-center justify-center">
+                開啟官方管理審查
+              </Link>
+            )}
+            <label htmlFor="demo-user-id" className="block font-bold">展示使用者 ID</label>
+            <input id="demo-user-id" value={demoId} onChange={event => setDemoId(event.target.value)} maxLength={7} className="w-full min-h-[52px] rounded-xl border-2 border-input bg-background px-4" placeholder="一般使用者或 ADMIN1" />
+            <button type="submit" className="accessible-btn w-full border-2 border-border">登入本機展示帳號</button>
+          </form>
+        )}
       </div> : <>
         <div className="card-accessible space-y-2">
           <p className="font-bold">已登入 Supabase</p>

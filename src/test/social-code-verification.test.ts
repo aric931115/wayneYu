@@ -29,6 +29,7 @@ describe('social task code verification', () => {
         organizerId: 'organizer',
       });
       activityId = activity.id;
+      result.current.reviewActivity(activityId, 'ADMIN1', true);
     });
 
     act(() => {

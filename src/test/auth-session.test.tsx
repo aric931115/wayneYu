@@ -23,6 +23,7 @@ describe('demo authentication session', () => {
     act(() => result.current.loginWithId('AB12345'));
     const firstUserId = result.current.user.id;
     expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.isDemoUser).toBe(true);
     expect(result.current.user.name).toBe('');
     expect(firstUserId).toBe('AB12345');
     act(() => result.current.updateProfile({
@@ -35,7 +36,9 @@ describe('demo authentication session', () => {
 
     act(() => result.current.logout());
     expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.isDemoUser).toBe(false);
     act(() => result.current.loginWithId(firstUserId));
+    expect(result.current.isDemoUser).toBe(true);
     expect(result.current.user.name).toBe('NewUser');
     expect(result.current.user.mbti).toBe('INTJ');
     act(() => result.current.logout());
@@ -93,6 +96,58 @@ describe('demo authentication session', () => {
     expect(result.current.friendRequests[0].status).toBe('accepted');
     act(() => result.current.switchDemoUser(senderId, 'Sender1'));
     expect(result.current.friendRequests[0].status).toBe('accepted');
+  });
+
+  it('only lets the local admin approve point requests and credits the recipient', () => {
+    const { result } = renderHook(() => useAppContext(), { wrapper: Providers });
+
+    act(() => result.current.loginWithId('STUD01'));
+    act(() => result.current.requestPoints(12, '完成任務：簽到', 7, 2));
+    const request = result.current.pointAwardRequests[0];
+    expect(request.status).toBe('pending');
+    expect(result.current.user.points).toBe(0);
+
+    let nonAdminApproval: boolean;
+    act(() => {
+      nonAdminApproval = result.current.reviewPointAward(request.id, true);
+    });
+    expect(nonAdminApproval!).toBe(false);
+
+    act(() => result.current.switchDemoUser('ADMIN1', 'Admin'));
+    let adminApproval: boolean;
+    act(() => {
+      adminApproval = result.current.reviewPointAward(request.id, true);
+    });
+
+    expect(adminApproval!).toBe(true);
+    expect(result.current.pointAwardRequests[0].status).toBe('approved');
+    const registry = JSON.parse(localStorage.getItem('campus-users-v2') || '{}');
+    expect(registry.STUD01.points).toBe(12);
+    expect(registry.STUD01.pointHistory[0].reason).toBe('完成任務：簽到');
+  });
+
+  it('updates pending point requests when another tab submits one', () => {
+    const { result } = renderHook(() => useAppContext(), { wrapper: Providers });
+    const request = {
+      id: 'award-from-another-tab',
+      recipientId: 'STUD01',
+      recipientName: 'Student',
+      amount: 8,
+      reason: '完成任務：簽到',
+      activityId: 7,
+      taskId: 2,
+      createdAt: '2026/10/28',
+      status: 'pending' as const,
+    };
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'campus-point-award-requests-v1',
+        newValue: JSON.stringify([request]),
+      }));
+    });
+
+    expect(result.current.pointAwardRequests).toEqual([request]);
   });
 
   it('rejects IDs with symbols and migrates legacy demo IDs to alphanumeric IDs', () => {
