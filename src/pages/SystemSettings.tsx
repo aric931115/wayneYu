@@ -3,7 +3,7 @@ import PageHeader from '@/components/PageHeader';
 import { useAppContext } from '@/contexts/AppContext';
 import { useVoiceAssistant } from '@/hooks/useVoiceAssistant';
 
-const SystemSettings = () => {
+const SystemSettings = ({ embedded = false }: { embedded?: boolean }) => {
   const { settings, updateSettings } = useAppContext();
   useVoiceAssistant(`系統設定頁面。目前文字大小為${settings.textSize === 'small' ? '小' : settings.textSize === 'medium' ? '中' : '大'}，高對比模式${settings.highContrast ? '已開啟' : '已關閉'}，語音助手已開啟。`);
 
@@ -14,9 +14,9 @@ const SystemSettings = () => {
   ];
 
   return (
-    <div className="pb-24">
-      <PageHeader title="系統設定" />
-      <div className="p-6 space-y-8">
+    <div className={embedded ? 'space-y-5' : 'pb-24'}>
+      {!embedded && <PageHeader title="系統設定" />}
+      <div className={embedded ? 'space-y-8' : 'p-6 space-y-8'}>
         {/* Text Size */}
         <div className="space-y-4">
           <div className="flex items-center gap-3">

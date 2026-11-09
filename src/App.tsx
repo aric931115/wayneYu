@@ -13,6 +13,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 
 import BottomNav from "@/components/BottomNav";
 import VoiceIndicator from "@/components/VoiceIndicator";
+import RoleSelectionPrompt from "@/components/RoleSelectionPrompt";
+import CosmeticThemeSync from "@/components/CosmeticThemeSync";
 
 import Activities from "@/pages/Activities";
 import ActivityDetail from "@/pages/ActivityDetail";
@@ -21,7 +23,6 @@ import CreateActivity from "@/pages/CreateActivity";
 import ManageActivity from "@/pages/ManageActivity";
 import Social from "@/pages/Social";
 import Account from "@/pages/Account";
-import SystemSettings from "@/pages/SystemSettings";
 import SupabaseTest from "@/pages/SupabaseTest";
 import NotFound from "./pages/NotFound";
 import SupabaseAuth from "@/pages/SupabaseAuth";
@@ -31,7 +32,10 @@ const queryClient = new QueryClient();
 
 // 活動是開放式互動：訪客與會員都可建立、參加、進入任務房間。
 // 本階段活動/任務使用瀏覽器展示資料；正式權限由後續 Supabase RLS/RPC 實作。
-const AuthenticatedCreateActivity = () => <CreateActivity />;
+const AuthenticatedCreateActivity = () => {
+  const { appMode } = useAppContext();
+  return appMode === 'organizer' ? <CreateActivity /> : <Navigate to="/activities" replace />;
+};
 const AuthenticatedTaskRoom = () => <TaskRoom />;
 const AuthenticatedManageActivity = () => <ManageActivity />;
 
@@ -44,9 +48,11 @@ const App = () => (
           <Sonner />
 
           <BrowserRouter>
-            <div className="mx-auto min-h-screen w-full max-w-screen-xl bg-background relative shadow-xl">
+            <div className="app-shell mx-auto min-h-screen w-full max-w-screen-xl bg-background relative shadow-xl">
 
+              <CosmeticThemeSync />
               <VoiceIndicator />
+              <RoleSelectionPrompt />
 
               <Routes>
                 {/* 首頁 */}
@@ -100,7 +106,7 @@ const App = () => (
                 {/* 系統設定 */}
                 <Route
                   path="/settings"
-                  element={<SystemSettings />}
+                  element={<Navigate to="/account" replace />}
                 />
 
                 {/* Supabase 資料庫測試 */}

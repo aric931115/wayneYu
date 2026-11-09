@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, HelpCircle, School, Lock } from 'lucide-react';
+import { Plus, Trash2, HelpCircle, School } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,7 +74,6 @@ const TimeField = ({ label, value, onChange, onBlur, invalid = false }: TimeFiel
 
 const CATEGORY_OPTIONS: { value: ActivityCategory; label: string; icon: typeof School; desc: string }[] = [
   { value: 'campus', label: '校園活動', icon: School, desc: '公開張貼在校園活動板' },
-  { value: 'private', label: '私人活動', icon: Lock, desc: '僅憑代碼加入' },
 ];
 
 const TAG_COLORS = [

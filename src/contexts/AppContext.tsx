@@ -9,6 +9,7 @@ interface AppSettings {
 }
 
 export type UserRole = 'organizer' | 'participant' | 'admin';
+export type AppMode = 'organizer' | 'participant';
 
 export interface UserAchievement {
   id: string;
@@ -75,6 +76,8 @@ interface AppContextType {
   settings: AppSettings;
   updateSettings: (s: Partial<AppSettings>) => void;
   user: UserProfile;
+  appMode: AppMode;
+  setAppMode: (mode: AppMode) => void;
   isAuthenticated: boolean;
   isDemoUser: boolean;
   loginWithId: (id: string) => boolean;
@@ -152,6 +155,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       return saved && saved.id === defaultUser.id ? { ...defaultUser, ...saved } : defaultUser;
     } catch { return defaultUser; }
   });
+  const [appMode, setAppMode] = useState<AppMode>('participant');
   const [isAuthenticated, setIsAuthenticated] = useState(true); // 訪客可參與互動；非 Supabase 會員認證
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(loadFriendRequests);
@@ -507,7 +511,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AppContext.Provider value={{ settings, updateSettings, user, isAuthenticated, isDemoUser, loginWithId, logout, friendRequests, sendFriendRequest, respondFriendRequest, setRole, addPoints, addHistoryEntry, unlockAchievement, pointAwardRequests, requestPoints, reviewPointAward, updateProfile, switchDemoUser }}>
+    <AppContext.Provider value={{ settings, updateSettings, user, appMode, setAppMode, isAuthenticated, isDemoUser, loginWithId, logout, friendRequests, sendFriendRequest, respondFriendRequest, setRole, addPoints, addHistoryEntry, unlockAchievement, pointAwardRequests, requestPoints, reviewPointAward, updateProfile, switchDemoUser }}>
       <div className={`${settings.highContrast ? 'high-contrast' : ''} text-size-${settings.textSize}`}>
         {children}
       </div>

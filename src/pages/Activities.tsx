@@ -14,13 +14,14 @@ const CATEGORY_META: Record<ActivityCategory, { label: string; icon: typeof Scho
 
 const Activities = () => {
   const { activities } = useActivities();
-  const { user, isAuthenticated } = useAppContext();
+  const { user, appMode, isAuthenticated } = useAppContext();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'all' | ActivityCategory | 'joined' | 'mine'>('all');
   const visibleActivities = activities.filter(activity =>
-    (activity.reviewStatus || 'approved') === 'approved'
-    || activity.organizerId === user.id
-    || user.role === 'admin'
+    activity.category === 'campus'
+    && ((activity.reviewStatus || 'approved') === 'approved'
+      || activity.organizerId === user.id
+      || user.role === 'admin')
   );
 
   const filtered = filter === 'all'
@@ -59,7 +60,7 @@ const Activities = () => {
         </div>
 
         {/* 角色提示與發起者快捷 */}
-        {isAuthenticated && (
+        {isAuthenticated && appMode === 'organizer' && (
           <button
             onClick={() => navigate('/activities/create')}
             className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-2"
@@ -79,7 +80,7 @@ const Activities = () => {
 
         {/* 類別篩選 */}
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {(['all', 'campus', 'private', 'joined', 'mine'] as const).map(k => (
+          {(['all', 'campus', 'joined', 'mine'] as const).map(k => (
             <button
               key={k}
               onClick={() => setFilter(k)}

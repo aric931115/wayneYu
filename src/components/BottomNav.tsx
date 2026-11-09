@@ -1,17 +1,24 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Calendar, CalendarPlus, Users, UserCircle, Settings } from 'lucide-react';
+import { Calendar, CalendarPlus, Users, UserCircle } from 'lucide-react';
+import { useAppContext } from '@/contexts/AppContext';
 
-const tabs = [
-  { path: '/activities', label: '活動大廳', icon: Calendar },
+const activityTab = { path: '/activities', label: '活動大廳', icon: Calendar };
+const organizerTabs = [
+  activityTab,
   { path: '/activities/create', label: '建立活動', icon: CalendarPlus },
+  { path: '/account', label: '帳戶', icon: UserCircle },
+];
+const participantTabs = [
+  activityTab,
   { path: '/social', label: '社交', icon: Users },
   { path: '/account', label: '帳戶', icon: UserCircle },
-  { path: '/settings', label: '設定', icon: Settings },
 ];
 
 const BottomNav = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { appMode } = useAppContext();
+  const tabs = appMode === 'organizer' ? organizerTabs : participantTabs;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t-2 border-border safe-area-bottom">

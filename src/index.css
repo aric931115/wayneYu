@@ -112,6 +112,82 @@
   }
 }
 
+.app-shell {
+  transition: background-image 250ms ease;
+}
+
+:root[data-cosmetic-theme="theme-sakura"] .app-shell {
+  background-image: radial-gradient(ellipse at top left, rgb(255 214 230 / 38%), transparent 58%),
+    radial-gradient(ellipse at bottom right, rgb(255 231 214 / 32%), transparent 55%);
+}
+
+:root[data-cosmetic-theme="theme-ocean"] .app-shell {
+  background-image: radial-gradient(ellipse at top left, rgb(186 230 253 / 42%), transparent 58%),
+    radial-gradient(ellipse at bottom right, rgb(153 246 228 / 30%), transparent 55%);
+}
+
+.profile-avatar {
+  display: grid;
+  width: 5.5rem;
+  height: 5.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: hsl(var(--muted));
+  font-size: 2.5rem;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.profile-avatar.avatar-frame-aurora,
+.profile-avatar-preview.avatar-frame-aurora {
+  border: 4px solid transparent;
+  background: linear-gradient(hsl(var(--muted)), hsl(var(--muted))) padding-box,
+    linear-gradient(135deg, #22d3ee, #a78bfa, #34d399) border-box;
+  box-shadow: 0 0 16px rgb(34 211 238 / 38%);
+}
+
+.profile-avatar.avatar-frame-royal,
+.profile-avatar-preview.avatar-frame-royal {
+  border: 4px solid #eab308;
+  box-shadow: 0 0 0 3px rgb(234 179 8 / 28%), 0 0 16px rgb(234 179 8 / 35%);
+}
+
+.cosmetic-product-preview {
+  display: grid;
+  min-height: 7rem;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: hsl(var(--muted));
+}
+
+.cosmetic-preview-sakura {
+  color: #be185d;
+  background: linear-gradient(135deg, #fce7f3, #fff1f2, #ffedd5);
+}
+
+.cosmetic-preview-ocean {
+  color: #0369a1;
+  background: linear-gradient(135deg, #e0f2fe, #ccfbf1, #dbeafe);
+}
+
+.profile-avatar-preview {
+  display: grid;
+  width: 4.5rem;
+  height: 4.5rem;
+  place-items: center;
+  border-radius: 9999px;
+  background: hsl(var(--background));
+  font-size: 2rem;
+}
+
 @layer utilities {
   .accessible-btn {
     @apply min-h-[60px] rounded-2xl font-bold text-lg transition-all duration-150 
