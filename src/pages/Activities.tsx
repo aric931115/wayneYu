@@ -68,6 +68,12 @@ const Activities = () => {
             <Plus size={24} /> 建立新活動
           </button>
         )}
+        <Link
+          to="/cloud-activities"
+          className="accessible-btn w-full border-2 border-border text-center"
+        >
+          瀏覽 Supabase 雲端活動
+        </Link>
         {user.role === 'admin' && (
           <button
             type="button"

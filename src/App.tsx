@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 // 原本的 AppContext
-import { AppProvider } from "@/contexts/AppContext";
+import { AppProvider, useAppContext } from "@/contexts/AppContext";
 
 // 新增：Supabase AuthContext
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -21,6 +21,8 @@ import ActivityDetail from "@/pages/ActivityDetail";
 import TaskRoom from "@/pages/TaskRoom";
 import CreateActivity from "@/pages/CreateActivity";
 import ManageActivity from "@/pages/ManageActivity";
+import CloudActivities from "@/pages/CloudActivities";
+import CloudManageActivity from "@/pages/CloudManageActivity";
 import Social from "@/pages/Social";
 import Account from "@/pages/Account";
 import SupabaseTest from "@/pages/SupabaseTest";
@@ -85,6 +87,13 @@ const App = () => (
                 <Route
                   path="/activities/:id/manage"
                   element={<AuthenticatedManageActivity />}
+                />
+
+                <Route path="/cloud-activities" element={<CloudActivities />} />
+                <Route path="/cloud-activities/:id" element={<CloudActivities />} />
+                <Route
+                  path="/cloud-activities/:id/manage"
+                  element={<CloudManageActivity />}
                 />
 
                 {/* 社交功能 */}
