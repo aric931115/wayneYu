@@ -11,11 +11,35 @@ import { supabase } from '@/lib/supabase';
 import { COSMETICS, type OwnedCosmetic } from '@/lib/cosmetics';
 
 type View = 'list' | 'add' | 'achievements' | 'shop';
+type Achievement = {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string;
+  condition_type: string;
+  condition_value: number;
+};
+type UserAchievement = { achievement_id: string; unlocked_at: string };
+const BADGE_ICONS: Record<string, string> = {
+  star: '⭐',
+  gem: '💎',
+  medal: '🏅',
+  crown: '👑',
+  trophy: '🏆',
+  footprints: '👣',
+  users: '👥',
+};
 
 const Social = () => {
   const [view, setView] = useState<View>('list');
   const [searchId, setSearchId] = useState('');
   const [availablePoints, setAvailablePoints] = useState<number | null>(null);
+  const [earnedPoints, setEarnedPoints] = useState<number | null>(null);
+  const [participatedCount, setParticipatedCount] = useState<number | null>(null);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [unlockedAchievements, setUnlockedAchievements] = useState<UserAchievement[]>([]);
+  const [achievementError, setAchievementError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
   const [ownedCosmetics, setOwnedCosmetics] = useState<OwnedCosmetic[]>([]);
   const [shopError, setShopError] = useState('');
   const [purchaseBusy, setPurchaseBusy] = useState('');
@@ -38,31 +62,63 @@ const Social = () => {
   const incoming = requests.filter(request => request.toUserId === user.id && request.status === 'pending');
   const outgoing = requests.filter(request => request.fromUserId === user.id && request.status === 'pending');
 
-  const refreshShop = useCallback(async () => {
+  const refreshRewards = useCallback(async () => {
     if (!authUserId || !supabase) {
       setAvailablePoints(null);
+      setEarnedPoints(null);
+      setParticipatedCount(null);
+      setAchievements([]);
+      setUnlockedAchievements([]);
       setOwnedCosmetics([]);
       setShopError('');
+      setAchievementError('');
       return;
     }
-    const [pointsResult, ownedResult] = await Promise.all([
-      supabase.rpc('get_my_available_points'),
-      supabase.from('cosmetic_purchases').select('item_id,slot,purchased_at,equipped').eq('user_id', authUserId),
-    ]);
-    const errors = [pointsResult.error?.message, ownedResult.error?.message].filter(Boolean);
-    if (errors.length) setShopError(errors.join('；'));
-    else setShopError('');
-    setAvailablePoints(pointsResult.error ? null : Number(pointsResult.data ?? 0));
-    setOwnedCosmetics(ownedResult.error ? [] : ownedResult.data as OwnedCosmetic[]);
+    setRefreshing(true);
+    try {
+      const [totalPoints, participation, badges, unlocked, available, owned] = await Promise.all([
+        supabase.rpc('get_my_total_points'),
+        supabase.from('activity_participants').select('activity_id', { count: 'exact', head: true })
+          .eq('user_id', authUserId).in('status', ['registered', 'completed']),
+        supabase.from('achievements').select('id,name,description,icon,condition_type,condition_value')
+          .eq('is_active', true).order('condition_value'),
+        supabase.from('user_achievements').select('achievement_id,unlocked_at')
+          .eq('user_id', authUserId),
+        supabase.rpc('get_my_available_points'),
+        supabase.from('cosmetic_purchases').select('item_id,slot,purchased_at,equipped')
+          .eq('user_id', authUserId),
+      ]);
+
+      setEarnedPoints(totalPoints.error ? null : Number(totalPoints.data ?? 0));
+      setParticipatedCount(participation.error ? null : participation.count ?? 0);
+      setAchievements(badges.error ? [] : (badges.data ?? []) as Achievement[]);
+      setUnlockedAchievements(unlocked.error ? [] : (unlocked.data ?? []) as UserAchievement[]);
+      setAchievementError([
+        totalPoints.error?.message,
+        participation.error?.message,
+        badges.error?.message,
+        unlocked.error?.message,
+      ].filter(Boolean).join('；'));
+
+      setAvailablePoints(available.error ? null : Number(available.data ?? 0));
+      setOwnedCosmetics(owned.error ? [] : owned.data as OwnedCosmetic[]);
+      setShopError([available.error?.message, owned.error?.message].filter(Boolean).join('；'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAchievementError(message);
+      setShopError(message);
+    } finally {
+      setRefreshing(false);
+    }
   }, [authUserId]);
 
   useEffect(() => {
-    if (view === 'shop') void refreshShop();
-  }, [view, refreshShop]);
+    if (view === 'shop' || view === 'achievements') void refreshRewards();
+  }, [view, refreshRewards]);
 
   useEffect(() => {
-    if (view !== 'shop') return;
-    const refresh = () => { if (document.visibilityState === 'visible') void refreshShop(); };
+    if (view !== 'shop' && view !== 'achievements') return;
+    const refresh = () => { if (document.visibilityState === 'visible') void refreshRewards(); };
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('cosmetics-changed', refresh);
@@ -73,7 +129,7 @@ const Social = () => {
       window.removeEventListener('cosmetics-changed', refresh);
       window.clearInterval(timer);
     };
-  }, [view, refreshShop]);
+  }, [view, refreshRewards]);
 
   useVoiceAssistant(view === 'list' ? `社交頁面。你目前有${acceptedFriends.length}位已確認好友。` : view === 'add' ? '加入好友頁面。' : view === 'shop' ? '成就商店。' : '成就頁面。');
 
@@ -104,7 +160,7 @@ const Social = () => {
         return;
       }
       setAvailablePoints(Number(data));
-      await refreshShop();
+      await refreshRewards();
       window.dispatchEvent(new Event('cosmetics-changed'));
       toast.success('購買成功，商品已自動裝備！');
     } catch (error) {
@@ -121,7 +177,7 @@ const Social = () => {
       toast.error(`裝備失敗：${error.message}`);
       return;
     }
-    await refreshShop();
+    await refreshRewards();
     window.dispatchEvent(new Event('cosmetics-changed'));
     toast.success('已裝備此商品。');
   };
@@ -153,55 +209,81 @@ const Social = () => {
   );
 
   if (view === 'achievements') {
-    const { achievements, nextAchievement, pointsToNext } = getPointAchievementProgress(user.points);
+    const unlockedIds = new Set(unlockedAchievements.map(achievement => achievement.achievement_id));
+    const unlockedDates = new Map(unlockedAchievements.map(achievement => [achievement.achievement_id, achievement.unlocked_at]));
+    const unlockedCount = achievements.filter(achievement => unlockedIds.has(achievement.id)).length;
+    const pointAchievements = achievements
+      .filter(achievement => achievement.condition_type === 'total_points')
+      .sort((a, b) => a.condition_value - b.condition_value);
+    const nextPointAchievement = pointAchievements.find(achievement =>
+      !unlockedIds.has(achievement.id) && (earnedPoints ?? 0) < achievement.condition_value
+    );
+    const localProgress = getPointAchievementProgress(user.points);
     return (
       <div className="pb-24">
         <PageHeader title="成就" showBack />
         <div className="mx-auto w-full max-w-3xl p-4 space-y-5">
-          <div className="card-accessible space-y-2">
-            <p className="text-sm text-muted-foreground">完成任務取得積分，累積積分即可解鎖成就。</p>
-            <p className="text-2xl font-bold">目前累積：{user.points} 積分</p>
-            {nextAchievement ? (
-              <>
-                <p className="text-sm">再獲得 {pointsToNext} 分即可解鎖「{nextAchievement.title}」</p>
-                <div
-                  className="h-3 overflow-hidden rounded-full bg-muted"
-                  role="progressbar"
-                  aria-label={`距離${nextAchievement.title}的積分進度`}
-                  aria-valuemin={0}
-                  aria-valuemax={nextAchievement.requiredPoints}
-                  aria-valuenow={Math.min(user.points, nextAchievement.requiredPoints)}
-                >
-                  <div
-                    className="h-full rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.min(100, (user.points / nextAchievement.requiredPoints) * 100)}%` }}
-                  />
+          {authUser ? (
+            <section className="card-accessible space-y-3" aria-label="活動參與與積分成就進度">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-muted p-4">
+                  <h2 className="text-base font-bold">參加過的活動</h2>
+                  <p className="text-2xl font-bold">{participatedCount === null ? '讀取中...' : `${participatedCount} 場`}</p>
+                  <p className="text-xs text-muted-foreground">依資料庫參與紀錄累計</p>
                 </div>
-              </>
-            ) : (
-              <p className="font-bold text-primary">太棒了！已解鎖所有積分成就。</p>
-            )}
-          </div>
+                <div className="rounded-xl bg-muted p-4">
+                  <h2 className="text-base font-bold">💎 我的可用積分</h2>
+                  <p className="text-2xl font-bold">{availablePoints === null ? '讀取中...' : `${availablePoints} 分`}</p>
+                  <button type="button" disabled={refreshing} className="mt-1 text-xs font-medium text-primary underline disabled:opacity-50" onClick={() => void refreshRewards()}>
+                    {refreshing ? '更新中...' : '重新整理'}
+                  </button>
+                </div>
+              </div>
+              <h2 className="text-lg font-bold">🏆 成就勳章（{unlockedCount}/{achievements.length}）</h2>
+              {nextPointAchievement && earnedPoints !== null && (
+                <div className="space-y-2 rounded-xl bg-muted p-4">
+                  <p className="text-sm font-medium">下一個積分成就：{nextPointAchievement.name}</p>
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-background" role="progressbar" aria-valuemin={0} aria-valuemax={nextPointAchievement.condition_value} aria-valuenow={Math.min(earnedPoints, nextPointAchievement.condition_value)}>
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.max(0, Math.min(100, earnedPoints / nextPointAchievement.condition_value * 100))}%` }} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">累積獲得 {earnedPoints} / {nextPointAchievement.condition_value} 分，還差 {Math.max(0, nextPointAchievement.condition_value - earnedPoints)} 分</p>
+                </div>
+              )}
+              {achievementError && <p role="alert" className="card-accessible text-sm text-destructive">積分或成就讀取失敗：{achievementError}</p>}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {achievements.map(achievement => {
+                  const isUnlocked = unlockedIds.has(achievement.id);
+                  const unlockedAt = unlockedDates.get(achievement.id);
+                  return (
+                    <div key={achievement.id} className={`rounded-xl border p-4 text-center space-y-2 ${isUnlocked ? 'border-primary bg-primary/5' : 'border-border opacity-60'}`}>
+                      <div className="text-3xl" aria-hidden="true">{isUnlocked ? (BADGE_ICONS[achievement.icon] ?? '🏅') : '🔒'}</div>
+                      <p className="font-bold">{achievement.name}</p>
+                      <p className="text-xs text-muted-foreground">{achievement.description ?? (achievement.condition_type === 'total_points' ? `累積 ${achievement.condition_value} 分` : '完成指定條件')}</p>
+                      <p className="text-xs font-medium">{isUnlocked ? '已解鎖' : '尚未解鎖'}</p>
+                      {isUnlocked && unlockedAt && <p className="text-xs text-muted-foreground">解鎖日期：{new Date(unlockedAt).toLocaleDateString('zh-TW')}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+              {!achievementError && !refreshing && achievements.length === 0 && <p className="card-accessible text-sm text-muted-foreground">目前沒有可顯示的成就。</p>}
+            </section>
+          ) : (
+            <div className="card-accessible space-y-2">
+              <p className="text-sm text-muted-foreground">完成任務取得積分，累積積分即可解鎖成就。</p>
+              <p className="text-2xl font-bold">目前累積：{user.points} 積分</p>
+              {localProgress.nextAchievement ? (
+                <>
+                  <p className="text-sm">再獲得 {localProgress.pointsToNext} 分即可解鎖「{localProgress.nextAchievement.title}」</p>
+                  <div className="h-3 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`距離${localProgress.nextAchievement.title}的積分進度`} aria-valuemin={0} aria-valuemax={localProgress.nextAchievement.requiredPoints} aria-valuenow={Math.min(user.points, localProgress.nextAchievement.requiredPoints)}>
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, (user.points / localProgress.nextAchievement.requiredPoints) * 100)}%` }} />
+                  </div>
+                </>
+              ) : <p className="font-bold text-primary">太棒了！已解鎖所有積分成就。</p>}
+            </div>
+          )}
           <button onClick={() => setView('shop')} className="accessible-btn w-full bg-primary text-primary-foreground flex items-center justify-center gap-2">
             <ShoppingBag size={21} />前往成就商店
           </button>
-          <div className="space-y-3">
-            {achievements.map(achievement => (
-              <div
-                key={achievement.id}
-                className={`card-accessible flex items-center gap-4 ${achievement.unlocked ? '' : 'opacity-60'}`}
-              >
-                <div className="text-3xl" aria-hidden="true">{achievement.unlocked ? achievement.icon : '🔒'}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold">{achievement.title}</div>
-                  <div className="text-sm text-muted-foreground">{achievement.description}</div>
-                </div>
-                <span className={`shrink-0 text-sm font-bold ${achievement.unlocked ? 'text-primary' : 'text-muted-foreground'}`}>
-                  {achievement.unlocked ? '已解鎖' : `${achievement.requiredPoints} 分`}
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     );
@@ -217,7 +299,7 @@ const Social = () => {
               <p className="text-sm text-muted-foreground">剩餘可用積分</p>
               <p className="text-2xl font-bold">💎 {availablePoints === null ? '讀取中...' : availablePoints}</p>
             </div>
-            <button type="button" onClick={() => void refreshShop()} className="accessible-btn bg-secondary px-4 text-secondary-foreground">更新積分</button>
+            <button type="button" onClick={() => void refreshRewards()} disabled={refreshing} className="accessible-btn bg-secondary px-4 text-secondary-foreground disabled:opacity-50">{refreshing ? '更新中...' : '更新積分'}</button>
           </section>
           {!authUser && <p role="status" className="card-accessible text-sm">請先登入 Supabase 正式帳號才能購買及裝備商品。</p>}
           {shopError && <p role="alert" className="card-accessible text-sm text-destructive">商店資料讀取失敗：{shopError}。請先套用 supabase/migrations/20261109000000_cosmetics_shop.sql。</p>}

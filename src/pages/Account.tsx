@@ -37,7 +37,6 @@ export default function Account() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [name, setName] = useState('');
-  const [points, setPoints] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [cosmetics, setCosmetics] = useState<OwnedCosmetic[]>([]);
@@ -45,19 +44,15 @@ export default function Account() {
   const [error, setError] = useState('');
   const [demoId, setDemoId] = useState('');
   useEffect(() => {
-    if (!userId || !supabase) { setProfile(null); setPoints(null); return; }
+    if (!userId || !supabase) { setProfile(null); return; }
     let alive = true;
     const load = async () => {
-      const [p, score] = await Promise.all([
-        supabase.from('profiles').select('display_name,role,avatar_url').eq('id', userId).maybeSingle(),
-        supabase.rpc('get_my_total_points'),
-      ]);
+      const { data, error: profileError } = await supabase.from('profiles')
+        .select('display_name,role,avatar_url').eq('id', userId).maybeSingle();
       if (!alive) return;
-      if (p.error) setError(`讀取個人資料失敗：${p.error.message}`);
-      else if (!p.data) setError('找不到 profiles 紀錄，請檢查註冊觸發器是否建立成功。');
-      else { setError(''); setProfile(p.data); setName(p.data.display_name); }
-      if (score.error) setError(old => `${old} 積分讀取失敗：${score.error.message}`.trim());
-      else setPoints(typeof score.data === 'number' ? score.data : Number(score.data || 0));
+      if (profileError) setError(`讀取個人資料失敗：${profileError.message}`);
+      else if (!data) setError('找不到 profiles 紀錄，請檢查註冊觸發器是否建立成功。');
+      else { setError(''); setProfile(data); setName(data.display_name); }
     };
     void load();
     return () => { alive = false; };
@@ -168,7 +163,6 @@ export default function Account() {
           <p className="font-bold">已登入 Supabase</p>
           <p className="break-all">Email：{user.email}</p>
           <p className="text-xs text-muted-foreground break-all">使用者 UUID：{user.id}</p>
-          <p className="text-xl font-bold">💎 積分：{points === null ? '讀取中' : points}</p>
         </div>
         {error && <div role="alert" className="card-accessible text-destructive">{error}</div>}
         <section className="card-accessible space-y-4">
@@ -210,7 +204,7 @@ export default function Account() {
           <input id="display-name" className="w-full min-h-[60px] rounded-xl border-2 border-input bg-background px-4" value={name} maxLength={50} onChange={e => setName(e.target.value)} />
           <button disabled={busy || !profile} className="accessible-btn w-full bg-primary text-primary-foreground disabled:opacity-50">{busy ? '儲存中...' : '儲存至 Supabase'}</button>
         </form>
-        <div className="card-accessible text-sm text-muted-foreground">活動與任務目前為本機展示資料，與 Supabase 積分分開。訪客積分轉移至正式帳號尚未實作，請勿將展示積分當作正式資料。</div>
+        <div className="card-accessible text-sm text-muted-foreground">正式積分與成就進度請至社交頁面的「成就」查看；商店購買後的可用積分會即時更新。</div>
         <button className="accessible-btn w-full border-2 border-border" onClick={async () => { try { await signOut(); toast.success('已登出'); } catch (e) { toast.error(e instanceof Error ? e.message : '登出失敗'); } }}>登出</button>
       </>}
       <details className="card-accessible group">
